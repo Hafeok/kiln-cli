@@ -1,0 +1,6 @@
+id: box-status-view-projector
+projects_for: box-status-view
+folds:
+- box-mode-changed
+over:
+- box

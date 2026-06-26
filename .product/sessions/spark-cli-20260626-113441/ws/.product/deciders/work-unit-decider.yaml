@@ -1,0 +1,22 @@
+id: work-unit-decider
+decides_for: work-unit
+handles:
+- admit-work-unit
+- reprioritize-work-unit
+- escalate-unit
+emits:
+- work-unit-enqueued
+- work-unit-rejected
+- work-unit-reprioritized
+- unit-escalated
+- unit-halted
+evolves_from:
+- work-unit-enqueued
+- work-unit-rejected
+- work-unit-reprioritized
+- unit-escalated
+- unit-halted
+rejects:
+- inv-binding-homogeneity
+- inv-only-queued-reorderable
+- inv-ladder-exhausted

@@ -1,0 +1,16 @@
+{
+  "id": "spark-cli-20260626-113441",
+  "product": "spark-cli",
+  "phase": "how",
+  "agent_cli": "claude",
+  "until": "build",
+  "started_at": "2026-06-26T11:34:41.362570378+00:00",
+  "history": [
+    {
+      "from": "what",
+      "to": "how",
+      "at": "2026-06-26T11:55:24.098579824+00:00"
+    }
+  ],
+  "finalized": true
+}

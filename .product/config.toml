@@ -1,0 +1,9 @@
+name = "spark-cli"
+schema-version = "1"
+
+[product]
+responsibility = "A CLI For Execution of agentic development against the DGX Spark"
+
+[mcp]
+write = true
+port = 7777

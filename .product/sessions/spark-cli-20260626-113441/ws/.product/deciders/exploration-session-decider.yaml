@@ -1,0 +1,13 @@
+id: exploration-session-decider
+decides_for: exploration-session
+handles:
+- start-exploration
+- produce-discovery-record
+emits:
+- exploration-started
+- discovery-record-produced
+evolves_from:
+- exploration-started
+rejects:
+- inv-box-must-be-explorer
+- inv-session-not-active

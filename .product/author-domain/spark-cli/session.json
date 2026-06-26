@@ -1,0 +1,527 @@
+{
+  "product": "spark-cli",
+  "participants": [],
+  "graph": {
+    "contexts": [
+      {
+        "id": "ctx-queue",
+        "label": "Work-Unit Queue"
+      },
+      {
+        "id": "ctx-switch",
+        "label": "Box Control"
+      },
+      {
+        "id": "ctx-execution",
+        "label": "Execution"
+      },
+      {
+        "id": "ctx-exploration",
+        "label": "Exploration"
+      }
+    ],
+    "entities": [
+      {
+        "id": "work-unit",
+        "label": "WorkUnit",
+        "context": "ctx-queue",
+        "definition": "The schedulable, reorderable, escalatable atom the executor consumes. Frozen and emitted by product dispatch, it crosses the Work-Unit Interface by value with its SPMC bundle inlined and identified by bundle_hash. Its cell_graph is a sealed interior — the executor's concern, never the queue's. Well-formed iff all of its cells require the same model binding (the binding-homogeneity invariant).",
+        "identity": "unit_ref",
+        "is_aggregate_root": true,
+        "attributes": [
+          {
+            "name": "unit_ref",
+            "type": "string"
+          },
+          {
+            "name": "parent_deliverable",
+            "type": "string"
+          },
+          {
+            "name": "bundle_hash",
+            "type": "string"
+          },
+          {
+            "name": "spmc_bundle",
+            "type": "object"
+          },
+          {
+            "name": "model_binding",
+            "type": "object"
+          },
+          {
+            "name": "tier",
+            "type": "string"
+          },
+          {
+            "name": "acceptance_class",
+            "type": "string"
+          },
+          {
+            "name": "ladder_position",
+            "type": "integer"
+          },
+          {
+            "name": "cell_graph",
+            "type": "object"
+          },
+          {
+            "name": "environment",
+            "type": "object"
+          },
+          {
+            "name": "credential_grant",
+            "type": "string"
+          },
+          {
+            "name": "tool_grants",
+            "type": "array"
+          },
+          {
+            "name": "state",
+            "type": "string"
+          }
+        ]
+      },
+      {
+        "id": "box",
+        "label": "Box",
+        "context": "ctx-switch",
+        "definition": "The single bandwidth-bound machine (an NVIDIA DGX Spark) whose whole configuration the developer switch sets. It has exactly one mode at a time — QUEUE or EXPLORER — because the two residencies cannot co-reside in VRAM. The mode is set externally by a developer, never inferred by the box from its own state.",
+        "identity": "box_id",
+        "is_aggregate_root": true,
+        "attributes": [
+          {
+            "name": "box_id",
+            "type": "string"
+          },
+          {
+            "name": "mode",
+            "type": "string"
+          },
+          {
+            "name": "resident_binding",
+            "type": "object"
+          },
+          {
+            "name": "thrown_by",
+            "type": "string"
+          }
+        ]
+      },
+      {
+        "id": "execution-run",
+        "label": "ExecutionRun",
+        "context": "ctx-execution",
+        "definition": "One admission of a work-unit into the executor at a specific binding — the unit's execution attempt inside a per-unit ephemeral sandbox. Because the Model axis resets the quality baseline on any binding change, a re-dispatch at a higher binding is a new run (new attribution point), not a continuation: same unit_ref and bundle_hash, new run_id and tier_ran. The run walks the sealed cell-DAG and computes the unit-verdict; its sandbox is destroyed when the run reaches a verdict.",
+        "identity": "run_id",
+        "is_aggregate_root": true,
+        "attributes": [
+          {
+            "name": "run_id",
+            "type": "string"
+          },
+          {
+            "name": "unit_ref",
+            "type": "string"
+          },
+          {
+            "name": "bundle_hash",
+            "type": "string"
+          },
+          {
+            "name": "tier_ran",
+            "type": "string"
+          },
+          {
+            "name": "sandbox_id",
+            "type": "string"
+          },
+          {
+            "name": "unit_verdict",
+            "type": "string"
+          }
+        ]
+      },
+      {
+        "id": "cell",
+        "label": "Cell",
+        "context": "ctx-execution",
+        "definition": "The execution primitive beneath a work-unit's bundle, living entirely inside the unit's sealed cell-DAG. Carries intra-unit dependencies only (e.g. test-before-implement); no cross-unit edges ever exist. A cell becomes ready when its in-unit predecessors have passed; the executor batches the ready frontier on the resident binding and gates each cell against a protected oracle. All cells of a well-formed unit require the same binding.",
+        "identity": "cell_id",
+        "is_aggregate_root": false,
+        "attributes": [
+          {
+            "name": "cell_id",
+            "type": "string"
+          },
+          {
+            "name": "run_id",
+            "type": "string"
+          },
+          {
+            "name": "binding",
+            "type": "object"
+          },
+          {
+            "name": "depends_on",
+            "type": "array"
+          },
+          {
+            "name": "cell_verdict",
+            "type": "string"
+          }
+        ]
+      },
+      {
+        "id": "exploration-session",
+        "label": "ExplorationSession",
+        "context": "ctx-exploration",
+        "definition": "A single deep serial run of the local explorer while the box is in EXPLORER. Monopolises VRAM (QUEUE is not running while it is). Latency-tolerant by design: nothing waits on its decode rate. Produces exactly one discovery record on completion; its output is unaccepted by construction and must not enter the graph as code.",
+        "identity": "session_id",
+        "is_aggregate_root": true,
+        "attributes": [
+          {
+            "name": "session_id",
+            "type": "string"
+          },
+          {
+            "name": "prompt",
+            "type": "string"
+          },
+          {
+            "name": "resident_binding",
+            "type": "object"
+          }
+        ]
+      },
+      {
+        "id": "discovery-record",
+        "label": "DiscoveryRecord",
+        "context": "ctx-exploration",
+        "definition": "The product of an exploration session: a candidate slice with proposed work-unit boundaries and cells. Candidate structure, not artifact — no computed verdict and no protected oracle backed it. It re-enters engineered mode only by being decomposed into tier-homogeneous work-units, flipped to QUEUE, and dispatched. Never accepted as shippable code.",
+        "identity": "record_id",
+        "is_aggregate_root": false,
+        "attributes": [
+          {
+            "name": "record_id",
+            "type": "string"
+          },
+          {
+            "name": "session_id",
+            "type": "string"
+          },
+          {
+            "name": "candidate_slice",
+            "type": "object"
+          },
+          {
+            "name": "proposed_units",
+            "type": "array"
+          }
+        ]
+      }
+    ],
+    "value_objects": [],
+    "relations": [],
+    "invariants": [
+      {
+        "id": "inv-binding-homogeneity",
+        "statement": "A work-unit is well-formed iff all of its cells require the same SPMC model binding. A binding-heterogeneous unit is a decomposition defect and must be rejected at admission, never dispatched into the executor.",
+        "context": "ctx-queue",
+        "applies_to": "work-unit"
+      },
+      {
+        "id": "inv-only-queued-reorderable",
+        "statement": "Only a unit currently in the queued state may be reprioritized. A running, done, failed, or escalated unit is not in the flat priority set and has no position to change.",
+        "context": "ctx-queue",
+        "applies_to": "work-unit"
+      },
+      {
+        "id": "inv-ladder-exhausted",
+        "statement": "A unit may escalate only while its escalation ladder has a higher binding to climb to. When ladder_position has reached the top rung there is no heavier binding to re-dispatch at; the unit halts in failed rather than re-enqueueing.",
+        "context": "ctx-execution",
+        "applies_to": "work-unit"
+      },
+      {
+        "id": "inv-box-must-be-queue",
+        "statement": "The executor may admit a unit only while the box is in QUEUE. The executor and the explorer cannot co-reside in VRAM, so admission outside QUEUE is forbidden by construction.",
+        "context": "ctx-execution",
+        "applies_to": "execution-run"
+      },
+      {
+        "id": "inv-run-not-admitted",
+        "statement": "A unit-verdict may be computed only for a run that has been admitted and has walked its cell-DAG. Computing a verdict for a run not yet admitted is meaningless.",
+        "context": "ctx-execution",
+        "applies_to": "execution-run"
+      },
+      {
+        "id": "inv-no-verdict-yet",
+        "statement": "A VerdictEvent may be emitted only after the run has reached a computed unit-verdict. Emitting before the reduction would publish an unbacked verdict — done must be computed, not claimed.",
+        "context": "ctx-execution",
+        "applies_to": "execution-run"
+      },
+      {
+        "id": "inv-distinct-mode",
+        "statement": "Throwing the switch to the configuration already resident is a no-op and is rejected. Residency flips are expensive; a flip that changes nothing must not pay that cost.",
+        "context": "ctx-switch",
+        "applies_to": "box"
+      },
+      {
+        "id": "inv-box-must-be-explorer",
+        "statement": "A local exploration session may start only while the box is in EXPLORER. The largest resident coder and the batched QUEUE executor cannot co-reside in VRAM.",
+        "context": "ctx-exploration",
+        "applies_to": "exploration-session"
+      },
+      {
+        "id": "inv-session-not-active",
+        "statement": "A discovery record may be produced only by a session that is currently active. A record cannot be emitted before the session has started or after it has already completed.",
+        "context": "ctx-exploration",
+        "applies_to": "exploration-session"
+      }
+    ],
+    "context_mappings": [],
+    "commands": [
+      {
+        "id": "admit-work-unit",
+        "label": "AdmitWorkUnit",
+        "context": "ctx-queue",
+        "targets": "work-unit",
+        "emits": [
+          "work-unit-enqueued",
+          "work-unit-rejected"
+        ]
+      },
+      {
+        "id": "reprioritize-work-unit",
+        "label": "ReprioritizeWorkUnit",
+        "context": "ctx-queue",
+        "targets": "work-unit",
+        "emits": [
+          "work-unit-reprioritized"
+        ]
+      },
+      {
+        "id": "throw-switch",
+        "label": "ThrowSwitch",
+        "context": "ctx-switch",
+        "targets": "box",
+        "emits": [
+          "box-mode-changed"
+        ]
+      },
+      {
+        "id": "admit-to-executor",
+        "label": "AdmitToExecutor",
+        "context": "ctx-execution",
+        "targets": "execution-run",
+        "emits": [
+          "unit-admitted"
+        ]
+      },
+      {
+        "id": "gate-cell",
+        "label": "GateCell",
+        "context": "ctx-execution",
+        "targets": "cell",
+        "emits": [
+          "cell-passed",
+          "cell-failed"
+        ]
+      },
+      {
+        "id": "compute-unit-verdict",
+        "label": "ComputeUnitVerdict",
+        "context": "ctx-execution",
+        "targets": "execution-run",
+        "emits": [
+          "unit-verdict-computed"
+        ]
+      },
+      {
+        "id": "emit-verdict",
+        "label": "EmitVerdict",
+        "context": "ctx-execution",
+        "targets": "execution-run",
+        "emits": [
+          "verdict-emitted"
+        ]
+      },
+      {
+        "id": "escalate-unit",
+        "label": "EscalateUnit",
+        "context": "ctx-execution",
+        "targets": "work-unit",
+        "emits": [
+          "unit-escalated",
+          "unit-halted"
+        ]
+      },
+      {
+        "id": "start-exploration",
+        "label": "StartExploration",
+        "context": "ctx-exploration",
+        "targets": "exploration-session",
+        "emits": [
+          "exploration-started"
+        ]
+      },
+      {
+        "id": "produce-discovery-record",
+        "label": "ProduceDiscoveryRecord",
+        "context": "ctx-exploration",
+        "targets": "exploration-session",
+        "emits": [
+          "discovery-record-produced"
+        ]
+      }
+    ],
+    "events": [
+      {
+        "id": "work-unit-enqueued",
+        "label": "WorkUnitEnqueued",
+        "context": "ctx-queue",
+        "changes": "work-unit"
+      },
+      {
+        "id": "work-unit-rejected",
+        "label": "WorkUnitRejected",
+        "context": "ctx-queue",
+        "changes": "work-unit"
+      },
+      {
+        "id": "work-unit-reprioritized",
+        "label": "WorkUnitReprioritized",
+        "context": "ctx-queue",
+        "changes": "work-unit"
+      },
+      {
+        "id": "box-mode-changed",
+        "label": "BoxModeChanged",
+        "context": "ctx-switch",
+        "changes": "box"
+      },
+      {
+        "id": "unit-admitted",
+        "label": "UnitAdmitted",
+        "context": "ctx-execution",
+        "changes": "execution-run"
+      },
+      {
+        "id": "cell-passed",
+        "label": "CellPassed",
+        "context": "ctx-execution",
+        "changes": "cell"
+      },
+      {
+        "id": "cell-failed",
+        "label": "CellFailed",
+        "context": "ctx-execution",
+        "changes": "cell"
+      },
+      {
+        "id": "unit-verdict-computed",
+        "label": "UnitVerdictComputed",
+        "context": "ctx-execution",
+        "changes": "execution-run"
+      },
+      {
+        "id": "verdict-emitted",
+        "label": "VerdictEmitted",
+        "context": "ctx-execution",
+        "changes": "execution-run"
+      },
+      {
+        "id": "unit-escalated",
+        "label": "UnitEscalated",
+        "context": "ctx-execution",
+        "changes": "work-unit"
+      },
+      {
+        "id": "unit-halted",
+        "label": "UnitHalted",
+        "context": "ctx-execution",
+        "changes": "work-unit"
+      },
+      {
+        "id": "exploration-started",
+        "label": "ExplorationStarted",
+        "context": "ctx-exploration",
+        "changes": "exploration-session"
+      },
+      {
+        "id": "discovery-record-produced",
+        "label": "DiscoveryRecordProduced",
+        "context": "ctx-exploration",
+        "changes": "discovery-record"
+      }
+    ],
+    "read_models": [
+      {
+        "id": "priority-set-view",
+        "label": "PrioritySetView",
+        "projects": [
+          "work-unit-enqueued",
+          "work-unit-reprioritized",
+          "unit-admitted",
+          "unit-escalated",
+          "unit-halted"
+        ]
+      },
+      {
+        "id": "box-status-view",
+        "label": "BoxStatusView",
+        "projects": [
+          "box-mode-changed"
+        ]
+      },
+      {
+        "id": "verdict-stream-view",
+        "label": "VerdictStreamView",
+        "projects": [
+          "verdict-emitted"
+        ]
+      },
+      {
+        "id": "heterogeneity-rate-view",
+        "label": "HeterogeneityRateView",
+        "projects": [
+          "work-unit-enqueued",
+          "work-unit-rejected"
+        ]
+      },
+      {
+        "id": "utilization-view",
+        "label": "UtilizationView",
+        "projects": [
+          "unit-admitted",
+          "verdict-emitted",
+          "exploration-started",
+          "discovery-record-produced",
+          "box-mode-changed"
+        ]
+      }
+    ],
+    "wireframe_steps": [],
+    "flows": [],
+    "aios": [],
+    "contexts_of_use": [],
+    "application_roots": [],
+    "wcag_criteria": [],
+    "attestations": [],
+    "content_stores": [],
+    "design_systems": [],
+    "cios": [],
+    "tokens": [],
+    "reification_rules": [],
+    "reference_sets": [],
+    "data_shapes": [],
+    "production_datasets": [],
+    "systems": [],
+    "triggers": [],
+    "unreifiable_rules": []
+  },
+  "tool_calls": 48,
+  "started_at": "2026-06-26T11:41:54.784597372+00:00",
+  "finalized": false
+}

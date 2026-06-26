@@ -1,0 +1,13 @@
+id: utilization-view-projector
+projects_for: utilization-view
+folds:
+- unit-admitted
+- verdict-emitted
+- exploration-started
+- discovery-record-produced
+- box-mode-changed
+over:
+- execution-run
+- exploration-session
+- discovery-record
+- box

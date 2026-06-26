@@ -1,0 +1,7 @@
+id: heterogeneity-rate-view-projector
+projects_for: heterogeneity-rate-view
+folds:
+- work-unit-enqueued
+- work-unit-rejected
+over:
+- work-unit

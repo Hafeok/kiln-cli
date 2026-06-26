@@ -1,0 +1,10 @@
+id: box-decider
+decides_for: box
+handles:
+- throw-switch
+emits:
+- box-mode-changed
+evolves_from:
+- box-mode-changed
+rejects:
+- inv-distinct-mode

@@ -1,0 +1,6 @@
+id: verdict-stream-view-projector
+projects_for: verdict-stream-view
+folds:
+- verdict-emitted
+over:
+- execution-run

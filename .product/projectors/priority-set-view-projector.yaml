@@ -1,0 +1,11 @@
+id: priority-set-view-projector
+projects_for: priority-set-view
+folds:
+- work-unit-enqueued
+- work-unit-reprioritized
+- unit-admitted
+- unit-escalated
+- unit-halted
+over:
+- work-unit
+- execution-run

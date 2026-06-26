@@ -1,0 +1,18 @@
+id: execution-run-decider
+decides_for: execution-run
+handles:
+- admit-to-executor
+- compute-unit-verdict
+- emit-verdict
+emits:
+- unit-admitted
+- unit-verdict-computed
+- verdict-emitted
+evolves_from:
+- unit-admitted
+- unit-verdict-computed
+- verdict-emitted
+rejects:
+- inv-box-must-be-queue
+- inv-run-not-admitted
+- inv-no-verdict-yet

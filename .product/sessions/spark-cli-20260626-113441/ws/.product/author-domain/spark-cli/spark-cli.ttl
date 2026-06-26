@@ -1,0 +1,294 @@
+@prefix pf: <https://productframework.org/ns#> .
+@prefix d: <https://productframework.org/product/spark-cli#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+d:ctx-queue a pf:BoundedContext ;
+  rdfs:label "Work-Unit Queue" .
+
+d:ctx-switch a pf:BoundedContext ;
+  rdfs:label "Box Control" .
+
+d:ctx-execution a pf:BoundedContext ;
+  rdfs:label "Execution" .
+
+d:ctx-exploration a pf:BoundedContext ;
+  rdfs:label "Exploration" .
+
+d:work-unit a pf:Entity ;
+  rdfs:label "WorkUnit" ;
+  pf:definition "The schedulable, reorderable, escalatable atom the executor consumes. Frozen and emitted by product dispatch, it crosses the Work-Unit Interface by value with its SPMC bundle inlined and identified by bundle_hash. Its cell_graph is a sealed interior — the executor's concern, never the queue's. Well-formed iff all of its cells require the same model binding (the binding-homogeneity invariant)." ;
+  pf:inContext d:ctx-queue ;
+  pf:isAggregateRoot "true" ;
+  pf:identity "unit_ref" ;
+  pf:hasAttribute [ pf:attrName "unit_ref" ; pf:attrType "string" ] ;
+  pf:hasAttribute [ pf:attrName "parent_deliverable" ; pf:attrType "string" ] ;
+  pf:hasAttribute [ pf:attrName "bundle_hash" ; pf:attrType "string" ] ;
+  pf:hasAttribute [ pf:attrName "spmc_bundle" ; pf:attrType "object" ] ;
+  pf:hasAttribute [ pf:attrName "model_binding" ; pf:attrType "object" ] ;
+  pf:hasAttribute [ pf:attrName "tier" ; pf:attrType "string" ] ;
+  pf:hasAttribute [ pf:attrName "acceptance_class" ; pf:attrType "string" ] ;
+  pf:hasAttribute [ pf:attrName "ladder_position" ; pf:attrType "integer" ] ;
+  pf:hasAttribute [ pf:attrName "cell_graph" ; pf:attrType "object" ] ;
+  pf:hasAttribute [ pf:attrName "environment" ; pf:attrType "object" ] ;
+  pf:hasAttribute [ pf:attrName "credential_grant" ; pf:attrType "string" ] ;
+  pf:hasAttribute [ pf:attrName "tool_grants" ; pf:attrType "array" ] ;
+  pf:hasAttribute [ pf:attrName "state" ; pf:attrType "string" ] .
+
+d:box a pf:Entity ;
+  rdfs:label "Box" ;
+  pf:definition "The single bandwidth-bound machine (an NVIDIA DGX Spark) whose whole configuration the developer switch sets. It has exactly one mode at a time — QUEUE or EXPLORER — because the two residencies cannot co-reside in VRAM. The mode is set externally by a developer, never inferred by the box from its own state." ;
+  pf:inContext d:ctx-switch ;
+  pf:isAggregateRoot "true" ;
+  pf:identity "box_id" ;
+  pf:hasAttribute [ pf:attrName "box_id" ; pf:attrType "string" ] ;
+  pf:hasAttribute [ pf:attrName "mode" ; pf:attrType "string" ] ;
+  pf:hasAttribute [ pf:attrName "resident_binding" ; pf:attrType "object" ] ;
+  pf:hasAttribute [ pf:attrName "thrown_by" ; pf:attrType "string" ] .
+
+d:execution-run a pf:Entity ;
+  rdfs:label "ExecutionRun" ;
+  pf:definition "One admission of a work-unit into the executor at a specific binding — the unit's execution attempt inside a per-unit ephemeral sandbox. Because the Model axis resets the quality baseline on any binding change, a re-dispatch at a higher binding is a new run (new attribution point), not a continuation: same unit_ref and bundle_hash, new run_id and tier_ran. The run walks the sealed cell-DAG and computes the unit-verdict; its sandbox is destroyed when the run reaches a verdict." ;
+  pf:inContext d:ctx-execution ;
+  pf:isAggregateRoot "true" ;
+  pf:identity "run_id" ;
+  pf:hasAttribute [ pf:attrName "run_id" ; pf:attrType "string" ] ;
+  pf:hasAttribute [ pf:attrName "unit_ref" ; pf:attrType "string" ] ;
+  pf:hasAttribute [ pf:attrName "bundle_hash" ; pf:attrType "string" ] ;
+  pf:hasAttribute [ pf:attrName "tier_ran" ; pf:attrType "string" ] ;
+  pf:hasAttribute [ pf:attrName "sandbox_id" ; pf:attrType "string" ] ;
+  pf:hasAttribute [ pf:attrName "unit_verdict" ; pf:attrType "string" ] .
+
+d:cell a pf:Entity ;
+  rdfs:label "Cell" ;
+  pf:definition "The execution primitive beneath a work-unit's bundle, living entirely inside the unit's sealed cell-DAG. Carries intra-unit dependencies only (e.g. test-before-implement); no cross-unit edges ever exist. A cell becomes ready when its in-unit predecessors have passed; the executor batches the ready frontier on the resident binding and gates each cell against a protected oracle. All cells of a well-formed unit require the same binding." ;
+  pf:inContext d:ctx-execution ;
+  pf:identity "cell_id" ;
+  pf:hasAttribute [ pf:attrName "cell_id" ; pf:attrType "string" ] ;
+  pf:hasAttribute [ pf:attrName "run_id" ; pf:attrType "string" ] ;
+  pf:hasAttribute [ pf:attrName "binding" ; pf:attrType "object" ] ;
+  pf:hasAttribute [ pf:attrName "depends_on" ; pf:attrType "array" ] ;
+  pf:hasAttribute [ pf:attrName "cell_verdict" ; pf:attrType "string" ] .
+
+d:exploration-session a pf:Entity ;
+  rdfs:label "ExplorationSession" ;
+  pf:definition "A single deep serial run of the local explorer while the box is in EXPLORER. Monopolises VRAM (QUEUE is not running while it is). Latency-tolerant by design: nothing waits on its decode rate. Produces exactly one discovery record on completion; its output is unaccepted by construction and must not enter the graph as code." ;
+  pf:inContext d:ctx-exploration ;
+  pf:isAggregateRoot "true" ;
+  pf:identity "session_id" ;
+  pf:hasAttribute [ pf:attrName "session_id" ; pf:attrType "string" ] ;
+  pf:hasAttribute [ pf:attrName "prompt" ; pf:attrType "string" ] ;
+  pf:hasAttribute [ pf:attrName "resident_binding" ; pf:attrType "object" ] .
+
+d:discovery-record a pf:Entity ;
+  rdfs:label "DiscoveryRecord" ;
+  pf:definition "The product of an exploration session: a candidate slice with proposed work-unit boundaries and cells. Candidate structure, not artifact — no computed verdict and no protected oracle backed it. It re-enters engineered mode only by being decomposed into tier-homogeneous work-units, flipped to QUEUE, and dispatched. Never accepted as shippable code." ;
+  pf:inContext d:ctx-exploration ;
+  pf:identity "record_id" ;
+  pf:hasAttribute [ pf:attrName "record_id" ; pf:attrType "string" ] ;
+  pf:hasAttribute [ pf:attrName "session_id" ; pf:attrType "string" ] ;
+  pf:hasAttribute [ pf:attrName "candidate_slice" ; pf:attrType "object" ] ;
+  pf:hasAttribute [ pf:attrName "proposed_units" ; pf:attrType "array" ] .
+
+d:inv-binding-homogeneity a pf:Invariant ;
+  pf:statement "A work-unit is well-formed iff all of its cells require the same SPMC model binding. A binding-heterogeneous unit is a decomposition defect and must be rejected at admission, never dispatched into the executor." ;
+  pf:inContext d:ctx-queue ;
+  pf:appliesTo d:work-unit .
+
+d:inv-only-queued-reorderable a pf:Invariant ;
+  pf:statement "Only a unit currently in the queued state may be reprioritized. A running, done, failed, or escalated unit is not in the flat priority set and has no position to change." ;
+  pf:inContext d:ctx-queue ;
+  pf:appliesTo d:work-unit .
+
+d:inv-ladder-exhausted a pf:Invariant ;
+  pf:statement "A unit may escalate only while its escalation ladder has a higher binding to climb to. When ladder_position has reached the top rung there is no heavier binding to re-dispatch at; the unit halts in failed rather than re-enqueueing." ;
+  pf:inContext d:ctx-execution ;
+  pf:appliesTo d:work-unit .
+
+d:inv-box-must-be-queue a pf:Invariant ;
+  pf:statement "The executor may admit a unit only while the box is in QUEUE. The executor and the explorer cannot co-reside in VRAM, so admission outside QUEUE is forbidden by construction." ;
+  pf:inContext d:ctx-execution ;
+  pf:appliesTo d:execution-run .
+
+d:inv-run-not-admitted a pf:Invariant ;
+  pf:statement "A unit-verdict may be computed only for a run that has been admitted and has walked its cell-DAG. Computing a verdict for a run not yet admitted is meaningless." ;
+  pf:inContext d:ctx-execution ;
+  pf:appliesTo d:execution-run .
+
+d:inv-no-verdict-yet a pf:Invariant ;
+  pf:statement "A VerdictEvent may be emitted only after the run has reached a computed unit-verdict. Emitting before the reduction would publish an unbacked verdict — done must be computed, not claimed." ;
+  pf:inContext d:ctx-execution ;
+  pf:appliesTo d:execution-run .
+
+d:inv-distinct-mode a pf:Invariant ;
+  pf:statement "Throwing the switch to the configuration already resident is a no-op and is rejected. Residency flips are expensive; a flip that changes nothing must not pay that cost." ;
+  pf:inContext d:ctx-switch ;
+  pf:appliesTo d:box .
+
+d:inv-box-must-be-explorer a pf:Invariant ;
+  pf:statement "A local exploration session may start only while the box is in EXPLORER. The largest resident coder and the batched QUEUE executor cannot co-reside in VRAM." ;
+  pf:inContext d:ctx-exploration ;
+  pf:appliesTo d:exploration-session .
+
+d:inv-session-not-active a pf:Invariant ;
+  pf:statement "A discovery record may be produced only by a session that is currently active. A record cannot be emitted before the session has started or after it has already completed." ;
+  pf:inContext d:ctx-exploration ;
+  pf:appliesTo d:exploration-session .
+
+d:admit-work-unit a pf:Command ;
+  rdfs:label "AdmitWorkUnit" ;
+  pf:inContext d:ctx-queue ;
+  pf:targets d:work-unit ;
+  pf:emits d:work-unit-enqueued ;
+  pf:emits d:work-unit-rejected .
+
+d:reprioritize-work-unit a pf:Command ;
+  rdfs:label "ReprioritizeWorkUnit" ;
+  pf:inContext d:ctx-queue ;
+  pf:targets d:work-unit ;
+  pf:emits d:work-unit-reprioritized .
+
+d:throw-switch a pf:Command ;
+  rdfs:label "ThrowSwitch" ;
+  pf:inContext d:ctx-switch ;
+  pf:targets d:box ;
+  pf:emits d:box-mode-changed .
+
+d:admit-to-executor a pf:Command ;
+  rdfs:label "AdmitToExecutor" ;
+  pf:inContext d:ctx-execution ;
+  pf:targets d:execution-run ;
+  pf:emits d:unit-admitted .
+
+d:gate-cell a pf:Command ;
+  rdfs:label "GateCell" ;
+  pf:inContext d:ctx-execution ;
+  pf:targets d:cell ;
+  pf:emits d:cell-passed ;
+  pf:emits d:cell-failed .
+
+d:compute-unit-verdict a pf:Command ;
+  rdfs:label "ComputeUnitVerdict" ;
+  pf:inContext d:ctx-execution ;
+  pf:targets d:execution-run ;
+  pf:emits d:unit-verdict-computed .
+
+d:emit-verdict a pf:Command ;
+  rdfs:label "EmitVerdict" ;
+  pf:inContext d:ctx-execution ;
+  pf:targets d:execution-run ;
+  pf:emits d:verdict-emitted .
+
+d:escalate-unit a pf:Command ;
+  rdfs:label "EscalateUnit" ;
+  pf:inContext d:ctx-execution ;
+  pf:targets d:work-unit ;
+  pf:emits d:unit-escalated ;
+  pf:emits d:unit-halted .
+
+d:start-exploration a pf:Command ;
+  rdfs:label "StartExploration" ;
+  pf:inContext d:ctx-exploration ;
+  pf:targets d:exploration-session ;
+  pf:emits d:exploration-started .
+
+d:produce-discovery-record a pf:Command ;
+  rdfs:label "ProduceDiscoveryRecord" ;
+  pf:inContext d:ctx-exploration ;
+  pf:targets d:exploration-session ;
+  pf:emits d:discovery-record-produced .
+
+d:work-unit-enqueued a pf:Event ;
+  rdfs:label "WorkUnitEnqueued" ;
+  pf:inContext d:ctx-queue ;
+  pf:changes d:work-unit .
+
+d:work-unit-rejected a pf:Event ;
+  rdfs:label "WorkUnitRejected" ;
+  pf:inContext d:ctx-queue ;
+  pf:changes d:work-unit .
+
+d:work-unit-reprioritized a pf:Event ;
+  rdfs:label "WorkUnitReprioritized" ;
+  pf:inContext d:ctx-queue ;
+  pf:changes d:work-unit .
+
+d:box-mode-changed a pf:Event ;
+  rdfs:label "BoxModeChanged" ;
+  pf:inContext d:ctx-switch ;
+  pf:changes d:box .
+
+d:unit-admitted a pf:Event ;
+  rdfs:label "UnitAdmitted" ;
+  pf:inContext d:ctx-execution ;
+  pf:changes d:execution-run .
+
+d:cell-passed a pf:Event ;
+  rdfs:label "CellPassed" ;
+  pf:inContext d:ctx-execution ;
+  pf:changes d:cell .
+
+d:cell-failed a pf:Event ;
+  rdfs:label "CellFailed" ;
+  pf:inContext d:ctx-execution ;
+  pf:changes d:cell .
+
+d:unit-verdict-computed a pf:Event ;
+  rdfs:label "UnitVerdictComputed" ;
+  pf:inContext d:ctx-execution ;
+  pf:changes d:execution-run .
+
+d:verdict-emitted a pf:Event ;
+  rdfs:label "VerdictEmitted" ;
+  pf:inContext d:ctx-execution ;
+  pf:changes d:execution-run .
+
+d:unit-escalated a pf:Event ;
+  rdfs:label "UnitEscalated" ;
+  pf:inContext d:ctx-execution ;
+  pf:changes d:work-unit .
+
+d:unit-halted a pf:Event ;
+  rdfs:label "UnitHalted" ;
+  pf:inContext d:ctx-execution ;
+  pf:changes d:work-unit .
+
+d:exploration-started a pf:Event ;
+  rdfs:label "ExplorationStarted" ;
+  pf:inContext d:ctx-exploration ;
+  pf:changes d:exploration-session .
+
+d:discovery-record-produced a pf:Event ;
+  rdfs:label "DiscoveryRecordProduced" ;
+  pf:inContext d:ctx-exploration ;
+  pf:changes d:discovery-record .
+
+d:priority-set-view a pf:ReadModel ;
+  rdfs:label "PrioritySetView" ;
+  pf:projects d:work-unit-enqueued ;
+  pf:projects d:work-unit-reprioritized ;
+  pf:projects d:unit-admitted ;
+  pf:projects d:unit-escalated ;
+  pf:projects d:unit-halted .
+
+d:box-status-view a pf:ReadModel ;
+  rdfs:label "BoxStatusView" ;
+  pf:projects d:box-mode-changed .
+
+d:verdict-stream-view a pf:ReadModel ;
+  rdfs:label "VerdictStreamView" ;
+  pf:projects d:verdict-emitted .
+
+d:heterogeneity-rate-view a pf:ReadModel ;
+  rdfs:label "HeterogeneityRateView" ;
+  pf:projects d:work-unit-enqueued ;
+  pf:projects d:work-unit-rejected .
+
+d:utilization-view a pf:ReadModel ;
+  rdfs:label "UtilizationView" ;
+  pf:projects d:unit-admitted ;
+  pf:projects d:verdict-emitted ;
+  pf:projects d:exploration-started ;
+  pf:projects d:discovery-record-produced ;
+  pf:projects d:box-mode-changed .
+

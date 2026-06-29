@@ -1,0 +1,19 @@
+id: schema-type-verdict-emitted
+schema: 'shape: serde type carrying the bundle by value plus its bundle_hash identity'
+prompt: 'Produce serde type carrying the bundle by value plus its bundle_hash identity at ''crates/interface/src/verdict-emitted.rs'' for task type ''wire-seam-schema'' (verdict-emitted). Apply: read-only-bundle-mount.'
+model: code
+context:
+  derived_from:
+  - domain:verdict-emitted
+  - app-contract:spark-executor-app-contract
+  frozen: true
+  hash: sha256:d500b23de7e0cb6cfc7ad3e0db94d5de6656c646298cac8915802987d05e1cee
+produces:
+  artifact: serde type carrying the bundle by value plus its bundle_hash identity
+  path: crates/interface/src/verdict-emitted.rs
+applies:
+- read-only-bundle-mount
+trace:
+  what: verdict-emitted
+  why:
+  - read-only-bundle-mount

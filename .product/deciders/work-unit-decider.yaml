@@ -20,3 +20,92 @@ rejects:
 - inv-binding-homogeneity
 - inv-only-queued-reorderable
 - inv-ladder-exhausted
+logic:
+  initial:
+    state: "new"
+    ladder: 0
+  evolve:
+  - on: work-unit-enqueued
+    set:
+      state: "queued"
+  - on: work-unit-reprioritized
+    set:
+      state: "queued"
+  - on: unit-escalated
+    set:
+      state: "queued"
+      ladder: "=state.ladder + 1"
+  - on: work-unit-rejected
+    set:
+      state: "rejected"
+  - on: unit-halted
+    set:
+      state: "failed"
+  decide:
+  - on: admit-work-unit
+    guards:
+    - expr: "command.homogeneous"
+      else_reject: inv-binding-homogeneity
+    emit:
+    - work-unit-enqueued
+  - on: reprioritize-work-unit
+    guards:
+    - expr: "state.state == 'queued'"
+      else_reject: inv-only-queued-reorderable
+    emit:
+    - work-unit-reprioritized
+  - on: escalate-unit
+    guards:
+    - expr: "state.ladder < command.max_ladder"
+      else_reject: inv-ladder-exhausted
+    emit:
+    - unit-escalated
+scenarios:
+- name: a binding-homogeneous unit is enqueued
+  given: []
+  when:
+    command: admit-work-unit
+    with:
+      homogeneous: true
+  then:
+    emit:
+    - work-unit-enqueued
+- name: a binding-heterogeneous unit is rejected at admission
+  given: []
+  when:
+    command: admit-work-unit
+    with:
+      homogeneous: false
+  then:
+    reject: inv-binding-homogeneity
+- name: a queued unit can be reprioritized
+  given:
+  - work-unit-enqueued
+  when: reprioritize-work-unit
+  then:
+    emit:
+    - work-unit-reprioritized
+- name: a unit not in the queue cannot be reprioritized
+  given: []
+  when: reprioritize-work-unit
+  then:
+    reject: inv-only-queued-reorderable
+- name: a unit with ladder headroom escalates one binding up
+  given:
+  - work-unit-enqueued
+  when:
+    command: escalate-unit
+    with:
+      max_ladder: 3
+  then:
+    emit:
+    - unit-escalated
+- name: a unit at the top of the ladder halts instead of escalating
+  given:
+  - work-unit-enqueued
+  when:
+    command: escalate-unit
+    with:
+      max_ladder: 0
+  then:
+    reject: inv-ladder-exhausted

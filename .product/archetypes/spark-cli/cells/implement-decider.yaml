@@ -1,0 +1,44 @@
+id: implement-decider
+name: "Implement an aggregate's decider"
+family: application
+archetype: spark-cli
+classification: core
+applies_when: "realising an aggregate whose behaviour the What graph specifies as a Decider"
+does_not_apply_when: "a pure read-model with no decision logic (use implement-projector)"
+slots:
+  - name: aggregate
+    kind: domain
+    dispatch: "the aggregate root the decider decides for"
+    capture: "which aggregate?"
+    audit: "the aggregate exists in the What graph"
+  - name: decider
+    kind: behaviour
+    dispatch: "the decider whose guarded logic to realise"
+    capture: "which decider?"
+    audit: "the decider simulates sound and complete"
+cells:
+  - id: aggregate-state
+    artifact: "aggregate state with the evolve fold over its events"
+    path: "crates/<aggregate>/src/state.rs"
+    model: code
+    derived_from: ["domain:aggregate"]
+  - id: decide-fn
+    artifact: "guarded decide function that emits only sanctioned events"
+    path: "crates/<aggregate>/src/decide.rs"
+    model: code
+    derived_from: ["domain:aggregate", "app-contract:spark-executor-app-contract"]
+    applies: ["cell-verdict-rollup"]
+  - id: decider-tests
+    artifact: "scenario tests mirroring the decider oracle (given/when/then)"
+    path: "crates/<aggregate>/tests/decider.rs"
+    model: code
+    derived_from: ["decide-fn", "slot:decider"]
+audits:
+  - id: aggregate-exists
+    kind: domain-conformance
+    checks: "the aggregate slot resolves to a real aggregate root in the What graph"
+    protects: "aggregate slot"
+  - id: decider-conformance
+    kind: behavioural-conformance
+    checks: "the scenario tests reproduce the decider's simulated outcomes exactly"
+    protects: "decider slot"

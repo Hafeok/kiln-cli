@@ -1,0 +1,57 @@
+id: work-batch-decider
+decides_for: work-batch
+handles:
+- form-batch
+- dispatch-batch
+emits:
+- batch-formed
+- batch-dispatched
+evolves_from:
+- batch-formed
+- batch-dispatched
+rejects:
+- inv-batch-homogeneous
+- inv-batch-empty
+- inv-batch-not-formed
+logic:
+  initial:
+    phase: "new"
+  evolve:
+  - on: batch-formed
+    set: { phase: "forming" }
+  - on: batch-dispatched
+    set: { phase: "dispatched" }
+  decide:
+  - on: form-batch
+    guards:
+    - expr: "command.homogeneous"
+      else_reject: inv-batch-homogeneous
+    - expr: "command.nonempty"
+      else_reject: inv-batch-empty
+    emit: [batch-formed]
+  - on: dispatch-batch
+    guards:
+    - expr: "state.phase == 'forming'"
+      else_reject: inv-batch-not-formed
+    emit: [batch-dispatched]
+scenarios:
+- name: a homogeneous non-empty batch forms
+  given: []
+  when: { command: form-batch, with: { homogeneous: true, nonempty: true } }
+  then: { emit: [batch-formed] }
+- name: a binding-mixed batch is refused
+  given: []
+  when: { command: form-batch, with: { homogeneous: false, nonempty: true } }
+  then: { reject: inv-batch-homogeneous }
+- name: an empty batch is refused
+  given: []
+  when: { command: form-batch, with: { homogeneous: true, nonempty: false } }
+  then: { reject: inv-batch-empty }
+- name: a formed batch dispatches to the model
+  given: [batch-formed]
+  when: dispatch-batch
+  then: { emit: [batch-dispatched] }
+- name: an unformed batch cannot be dispatched
+  given: []
+  when: dispatch-batch
+  then: { reject: inv-batch-not-formed }

@@ -1,0 +1,23 @@
+id: deliverable-sandbox
+slice: slice-sandbox
+acceptance:
+- id: sb-declared-network
+  statement: A sandbox is provisioned only when network effects target declared destinations per inv-undeclared-network.
+  status: passing
+  runner: cargo-test
+  runner_args: undeclared_network_refused
+- id: sb-teardown
+  statement: Only a provisioned sandbox can be torn down per inv-no-sandbox.
+  status: passing
+  runner: cargo-test
+  runner_args: teardown_without_sandbox_refused
+- id: sb-lease-bound
+  statement: Credentials are leased only for a live sandbox per inv-lease-needs-sandbox.
+  status: passing
+  runner: cargo-test
+  runner_args: lease_without_sandbox_refused
+- id: sb-revoke
+  statement: Only an active lease can be revoked per inv-nothing-to-revoke.
+  status: passing
+  runner: cargo-test
+  runner_args: revoke_without_lease_refused

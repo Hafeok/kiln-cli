@@ -1,0 +1,14 @@
+id: schema-roundtrip-test-verdict-emitted
+schema: 'shape: round-trip and hash-identity test for the schema'
+prompt: Produce round-trip and hash-identity test for the schema at 'crates/interface/tests/verdict-emitted.rs' for task type 'wire-seam-schema' (verdict-emitted).
+model: code
+context:
+  derived_from:
+  - schema-type
+  frozen: true
+  hash: sha256:2021b218323a95ed83176369cada4086e7325d2c4683367c84f1aa13e5a9534e
+produces:
+  artifact: round-trip and hash-identity test for the schema
+  path: crates/interface/tests/verdict-emitted.rs
+trace:
+  what: verdict-emitted

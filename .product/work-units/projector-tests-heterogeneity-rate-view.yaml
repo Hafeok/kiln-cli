@@ -1,0 +1,14 @@
+id: projector-tests-heterogeneity-rate-view
+schema: 'shape: tests asserting the fold over a sample event sequence'
+prompt: Produce tests asserting the fold over a sample event sequence at 'crates/heterogeneity-rate-view/tests/projector.rs' for task type 'implement-projector' (heterogeneity-rate-view).
+model: code
+context:
+  derived_from:
+  - projector
+  frozen: true
+  hash: sha256:44a61ac015773c0eb9b66500d8c3176f11e761e12b942eb64c144690910964ac
+produces:
+  artifact: tests asserting the fold over a sample event sequence
+  path: crates/heterogeneity-rate-view/tests/projector.rs
+trace:
+  what: heterogeneity-rate-view

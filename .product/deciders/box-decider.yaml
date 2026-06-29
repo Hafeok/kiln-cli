@@ -8,3 +8,56 @@ evolves_from:
 - box-mode-changed
 rejects:
 - inv-distinct-mode
+logic:
+  initial:
+    mode: "off"
+  evolve:
+  - on: box-mode-changed
+    set:
+      mode: "=event.mode"
+  decide:
+  - on: throw-switch
+    guards:
+    - expr: "command.mode != state.mode"
+      else_reject: inv-distinct-mode
+    emit:
+    - event: box-mode-changed
+      with:
+        mode: "=command.mode"
+scenarios:
+- name: first throw loads QUEUE from a cold box
+  given: []
+  when:
+    command: throw-switch
+    with:
+      mode: queue
+  then:
+    emit:
+    - event: box-mode-changed
+      with:
+        mode: queue
+- name: flipping a QUEUE box to EXPLORER is a real residency change
+  given:
+  - event: box-mode-changed
+    with:
+      mode: queue
+  when:
+    command: throw-switch
+    with:
+      mode: explorer
+  then:
+    emit:
+    - event: box-mode-changed
+      with:
+        mode: explorer
+- name: re-throwing the already-resident mode is a rejected no-op
+  given:
+  - event: box-mode-changed
+    with:
+      mode: queue
+  when:
+    command: throw-switch
+    with:
+      mode: queue
+  then:
+    reject: inv-distinct-mode

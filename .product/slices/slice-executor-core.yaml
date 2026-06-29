@@ -1,0 +1,6 @@
+id: slice-executor-core
+anchors:
+- admit-to-executor
+- gate-cell
+- compute-unit-verdict
+depth: 2

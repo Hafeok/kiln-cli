@@ -1,0 +1,15 @@
+id: decider-tests-exploration-session
+schema: 'shape: scenario tests mirroring the decider oracle (given/when/then)'
+prompt: Produce scenario tests mirroring the decider oracle (given/when/then) at 'crates/exploration-session/tests/decider.rs' for task type 'implement-decider' (exploration-session).
+model: code
+context:
+  derived_from:
+  - decide-fn
+  - behaviour:exploration-session-decider
+  frozen: true
+  hash: sha256:017246984b3e4d40e4a58c1528f282c29cb7d45d335dbda28f3c6d06087237ba
+produces:
+  artifact: scenario tests mirroring the decider oracle (given/when/then)
+  path: crates/exploration-session/tests/decider.rs
+trace:
+  what: exploration-session

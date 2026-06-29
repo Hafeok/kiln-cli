@@ -1,0 +1,23 @@
+id: deliverable-serving
+slice: slice-serving
+acceptance:
+- id: sv-budget
+  statement: A binding loads only if it fits the remaining VRAM budget per inv-vram-budget.
+  status: passing
+  runner: cargo-test
+  runner_args: binding_over_budget_is_refused
+- id: sv-batch-homogeneous
+  statement: A batch forms only if every cell requires the resident binding per inv-batch-homogeneous.
+  status: passing
+  runner: cargo-test
+  runner_args: mixed_batch_is_refused
+- id: sv-batch-nonempty
+  statement: An empty batch is refused per inv-batch-empty.
+  status: passing
+  runner: cargo-test
+  runner_args: empty_batch_is_refused
+- id: sv-dispatch-formed
+  statement: Only a formed batch is dispatched to the model per inv-batch-not-formed.
+  status: passing
+  runner: cargo-test
+  runner_args: formed_batch_dispatches

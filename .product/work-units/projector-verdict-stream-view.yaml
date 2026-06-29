@@ -1,0 +1,14 @@
+id: projector-verdict-stream-view
+schema: 'shape: the projector folding the read-model''s declared source events'
+prompt: Produce the projector folding the read-model's declared source events at 'crates/verdict-stream-view/src/lib.rs' for task type 'implement-projector' (verdict-stream-view).
+model: code
+context:
+  derived_from:
+  - domain:verdict-stream-view
+  frozen: true
+  hash: sha256:dc31f383dcb3b2ae2b7afbbcea5f52220ee5e88ad3aaf5788e677cf03b3f2b24
+produces:
+  artifact: the projector folding the read-model's declared source events
+  path: crates/verdict-stream-view/src/lib.rs
+trace:
+  what: verdict-stream-view

@@ -1,0 +1,18 @@
+id: deliverable-exploration
+slice: slice-exploration
+acceptance:
+- id: xp-explorer-gated
+  statement: A local exploration session starts only while the box is in EXPLORER per inv-box-must-be-explorer.
+  status: passing
+  runner: cargo-test
+  runner_args: session_starts_only_in_explorer
+- id: xp-active
+  statement: A discovery record is produced only by an active session per inv-session-not-active.
+  status: passing
+  runner: cargo-test
+  runner_args: active_session_produces_a_record
+- id: xp-no-direct-entry
+  statement: Explorer output enters the graph only via dispatch as re-decomposed conformant work-units, never as accepted code directly.
+  status: passing
+  runner: cargo-test
+  runner_args: idle_session_cannot_produce

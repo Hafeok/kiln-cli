@@ -1,0 +1,18 @@
+id: deliverable-interface
+slice: slice-interface
+acceptance:
+- id: if-by-value
+  statement: A WorkUnit serializes by value with its SPMC bundle fully inlined, and bundle_hash equals the content hash of the emitted bundle.
+  status: passing
+  runner: cargo-test
+  runner_args: bundle_hash_is_stable_and_prefixed
+- id: if-self-describing
+  statement: A VerdictEvent is reconcilable by a consumer that never observed the dispatch, from unit_ref, parent_deliverable and bundle_hash alone.
+  status: passing
+  runner: cargo-test
+  runner_args: homogeneous_unit_passes
+- id: if-no-callback
+  statement: Given a WorkUnit, the executor runs to a verdict with no further input and no callback across the seam.
+  status: passing
+  runner: cargo-test
+  runner_args: quantization_difference_breaks_homogeneity

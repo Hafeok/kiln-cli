@@ -1,0 +1,317 @@
+//! Execution — the executor. Admits a unit (QUEUE-gated) into a per-unit
+//! sandbox, walks the sealed cell-DAG gating each cell against a protected
+//! oracle, reduces cell-verdicts to a unit-verdict, and emits a VerdictEvent.
+//! Realises `execution-run-decider` and `verdict-stream-view`.
+
+use spark_interface::{Cell, CellResult, Consequence, Verdict};
+use spark_switch::Mode;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Phase {
+    New,
+    Admitted,
+    VerdictReached,
+    Emitted,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RunEvent {
+    UnitAdmitted,
+    UnitVerdictComputed,
+    VerdictEmitted,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RunCommand {
+    Admit { box_mode: Mode },
+    ComputeVerdict,
+    Emit,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RunState {
+    pub phase: Phase,
+}
+
+impl Default for RunState {
+    fn default() -> Self {
+        RunState { phase: Phase::New }
+    }
+}
+
+impl RunState {
+    pub fn evolve(&mut self, event: &RunEvent) {
+        match event {
+            RunEvent::UnitAdmitted => self.phase = Phase::Admitted,
+            RunEvent::UnitVerdictComputed => self.phase = Phase::VerdictReached,
+            RunEvent::VerdictEmitted => self.phase = Phase::Emitted,
+        }
+    }
+
+    /// `execution-run-decider`.
+    pub fn decide(&self, command: &RunCommand) -> Result<Vec<RunEvent>, &'static str> {
+        match command {
+            RunCommand::Admit { box_mode } => {
+                if *box_mode == Mode::Queue {
+                    Ok(vec![RunEvent::UnitAdmitted])
+                } else {
+                    Err("inv-box-must-be-queue")
+                }
+            }
+            RunCommand::ComputeVerdict => {
+                if self.phase == Phase::Admitted {
+                    Ok(vec![RunEvent::UnitVerdictComputed])
+                } else {
+                    Err("inv-run-not-admitted")
+                }
+            }
+            RunCommand::Emit => {
+                if self.phase == Phase::VerdictReached {
+                    Ok(vec![RunEvent::VerdictEmitted])
+                } else {
+                    Err("inv-no-verdict-yet")
+                }
+            }
+        }
+    }
+}
+
+/// A protected oracle the cell-worker cannot write — it decides each cell's gate.
+pub trait Oracle {
+    fn gate(&self, cell: &Cell) -> bool;
+}
+
+/// Walk the sealed cell-DAG: a cell is ready once its in-unit predecessors have
+/// passed; gate each ready cell against the oracle. Returns the per-cell results
+/// in dependency order. A blocked-forever cell (failed predecessor) is recorded
+/// as not-passed without being gated.
+pub fn walk_cells(cells: &[Cell], oracle: &dyn Oracle) -> Vec<CellResult> {
+    use std::collections::BTreeMap;
+    let mut passed: BTreeMap<String, bool> = BTreeMap::new();
+    let mut results = Vec::new();
+    // Cells are a DAG with intra-unit edges only; iterate to a fixpoint.
+    let mut remaining: Vec<&Cell> = cells.iter().collect();
+    while !remaining.is_empty() {
+        let ready_idx = remaining.iter().position(|c| {
+            c.depends_on.iter().all(|d| passed.contains_key(d))
+        });
+        let Some(idx) = ready_idx else {
+            // A cycle or a dangling dependency — record the rest as not-passed.
+            for c in &remaining {
+                passed.insert(c.cell_id.clone(), false);
+                results.push(CellResult { cell_id: c.cell_id.clone(), passed: false });
+            }
+            break;
+        };
+        let cell = remaining.remove(idx);
+        let preds_ok = cell.depends_on.iter().all(|d| *passed.get(d).unwrap_or(&false));
+        let ok = preds_ok && oracle.gate(cell);
+        passed.insert(cell.cell_id.clone(), ok);
+        results.push(CellResult { cell_id: cell.cell_id.clone(), passed: ok });
+    }
+    results
+}
+
+/// Reduce cell-verdicts to a unit-verdict (`cell-verdict-rollup`): all-pass is
+/// accepted; any failure escalates so the whole unit re-runs one binding up.
+pub fn reduce_verdict(results: &[CellResult]) -> Verdict {
+    if results.iter().all(|r| r.passed) {
+        Verdict::Accepted
+    } else {
+        Verdict::Escalate
+    }
+}
+
+/// The Transition Contract binding for a verdict.
+pub fn consequence_of(verdict: Verdict) -> Consequence {
+    match verdict {
+        Verdict::Accepted => Consequence::Advance,
+        Verdict::Rejected => Consequence::Halt,
+        Verdict::Escalate => Consequence::Escalate,
+    }
+}
+
+/// `verdict-stream-view` projector: the count of emitted verdicts.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct VerdictStreamView {
+    pub emitted: i64,
+}
+
+impl VerdictStreamView {
+    pub fn apply(&mut self, _event: &RunEvent) {}
+    pub fn on_emitted(&mut self) {
+        self.emitted += 1;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use spark_interface::ModelBinding;
+    use std::collections::BTreeMap;
+
+    fn replay(events: &[RunEvent]) -> RunState {
+        let mut s = RunState::default();
+        for e in events { s.evolve(e); }
+        s
+    }
+
+    #[test]
+    fn admit_only_in_queue() {
+        assert_eq!(replay(&[]).decide(&RunCommand::Admit { box_mode: Mode::Queue }), Ok(vec![RunEvent::UnitAdmitted]));
+    }
+    #[test]
+    fn admit_refused_in_explorer() {
+        assert_eq!(replay(&[]).decide(&RunCommand::Admit { box_mode: Mode::Explorer }), Err("inv-box-must-be-queue"));
+    }
+    #[test]
+    fn verdict_computed_after_admit() {
+        assert_eq!(replay(&[RunEvent::UnitAdmitted]).decide(&RunCommand::ComputeVerdict), Ok(vec![RunEvent::UnitVerdictComputed]));
+    }
+    #[test]
+    fn verdict_not_computed_before_admit() {
+        assert_eq!(replay(&[]).decide(&RunCommand::ComputeVerdict), Err("inv-run-not-admitted"));
+    }
+    #[test]
+    fn emit_after_verdict() {
+        assert_eq!(replay(&[RunEvent::UnitAdmitted, RunEvent::UnitVerdictComputed]).decide(&RunCommand::Emit), Ok(vec![RunEvent::VerdictEmitted]));
+    }
+    #[test]
+    fn no_emit_before_verdict() {
+        assert_eq!(replay(&[RunEvent::UnitAdmitted]).decide(&RunCommand::Emit), Err("inv-no-verdict-yet"));
+    }
+
+    struct AllPass;
+    impl Oracle for AllPass {
+        fn gate(&self, _c: &Cell) -> bool { true }
+    }
+    struct FailCell(&'static str);
+    impl Oracle for FailCell {
+        fn gate(&self, c: &Cell) -> bool { c.cell_id != self.0 }
+    }
+
+    fn cell(id: &str, deps: &[&str]) -> Cell {
+        Cell {
+            cell_id: id.into(),
+            binding: ModelBinding { model: "coder".into(), quantization: "q4".into(), params: BTreeMap::new() },
+            depends_on: deps.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn all_cells_passing_accepts() {
+        let cells = vec![cell("test", &[]), cell("impl", &["test"])];
+        let r = walk_cells(&cells, &AllPass);
+        assert_eq!(reduce_verdict(&r), Verdict::Accepted);
+    }
+
+    #[test]
+    fn a_failed_cell_escalates_the_unit() {
+        let cells = vec![cell("test", &[]), cell("impl", &["test"])];
+        let r = walk_cells(&cells, &FailCell("impl"));
+        assert_eq!(reduce_verdict(&r), Verdict::Escalate);
+        assert_eq!(consequence_of(Verdict::Escalate), Consequence::Escalate);
+    }
+
+    #[test]
+    fn a_failed_predecessor_blocks_its_successor() {
+        // test-before-implement: if the test cell fails, impl is never gated green.
+        let cells = vec![cell("test", &[]), cell("impl", &["test"])];
+        let r = walk_cells(&cells, &FailCell("test"));
+        let impl_passed = r.iter().find(|c| c.cell_id == "impl").unwrap().passed;
+        assert!(!impl_passed);
+    }
+}
+
+// ───────────────────────── oracle-run-decider ───────────────────────────
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum OracleEvent {
+    GateConfirmed,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum OracleCommand {
+    /// `oracle_protected` = the cell-worker has no write capability over the oracle.
+    RunGate { oracle_protected: bool },
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct OracleRunState {
+    pub confirmed: bool,
+}
+impl OracleRunState {
+    pub fn evolve(&mut self, e: &OracleEvent) {
+        match e {
+            OracleEvent::GateConfirmed => self.confirmed = true,
+        }
+    }
+    /// `oracle-run-decider`: a gate may run only against a worker-unwritable
+    /// oracle (ADR-076) — otherwise there is no independent verifier.
+    pub fn decide(&self, c: &OracleCommand) -> Result<Vec<OracleEvent>, &'static str> {
+        match c {
+            OracleCommand::RunGate { oracle_protected } => {
+                if *oracle_protected { Ok(vec![OracleEvent::GateConfirmed]) } else { Err("inv-oracle-writable") }
+            }
+        }
+    }
+}
+
+/// A real protected oracle: gates a cell by running an external command (e.g.
+/// `cargo test <filter>` or a check script) that lives outside, and is
+/// unwritable by, the worker's workspace. Fails closed if its integrity is unmet.
+pub struct CommandOracle {
+    pub command: String,
+    pub worker_writable: bool,
+}
+impl CommandOracle {
+    /// The ADR-076 integrity check, as a decider outcome.
+    pub fn integrity(&self) -> Result<Vec<OracleEvent>, &'static str> {
+        OracleRunState::default().decide(&OracleCommand::RunGate { oracle_protected: !self.worker_writable })
+    }
+}
+impl Oracle for CommandOracle {
+    fn gate(&self, _cell: &Cell) -> bool {
+        if self.integrity().is_err() {
+            return false; // an oracle the worker can write is no oracle — fail closed
+        }
+        std::process::Command::new("sh")
+            .arg("-c")
+            .arg(&self.command)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    }
+}
+
+#[cfg(test)]
+mod oracle_tests {
+    use super::*;
+    use spark_interface::ModelBinding;
+    use std::collections::BTreeMap;
+
+    fn cell() -> Cell {
+        Cell { cell_id: "c".into(), binding: ModelBinding { model: "m".into(), quantization: "q".into(), params: BTreeMap::new() }, depends_on: vec![] }
+    }
+
+    #[test]
+    fn gate_against_protected_oracle_is_confirmed() {
+        assert_eq!(OracleRunState::default().decide(&OracleCommand::RunGate { oracle_protected: true }), Ok(vec![OracleEvent::GateConfirmed]));
+    }
+    #[test]
+    fn gate_against_writable_oracle_is_refused() {
+        assert_eq!(OracleRunState::default().decide(&OracleCommand::RunGate { oracle_protected: false }), Err("inv-oracle-writable"));
+    }
+    #[test]
+    fn protected_command_oracle_runs_the_check() {
+        let pass = CommandOracle { command: "true".into(), worker_writable: false };
+        let fail = CommandOracle { command: "false".into(), worker_writable: false };
+        assert!(pass.gate(&cell()));
+        assert!(!fail.gate(&cell()));
+    }
+    #[test]
+    fn worker_writable_oracle_fails_closed_even_if_command_passes() {
+        let compromised = CommandOracle { command: "true".into(), worker_writable: true };
+        assert!(!compromised.gate(&cell())); // integrity unmet -> never trusted
+    }
+}

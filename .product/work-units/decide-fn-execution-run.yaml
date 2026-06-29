@@ -1,0 +1,19 @@
+id: decide-fn-execution-run
+schema: 'shape: guarded decide function that emits only sanctioned events'
+prompt: 'Produce guarded decide function that emits only sanctioned events at ''crates/execution-run/src/decide.rs'' for task type ''implement-decider'' (execution-run). Apply: cell-verdict-rollup.'
+model: code
+context:
+  derived_from:
+  - domain:execution-run
+  - app-contract:spark-executor-app-contract
+  frozen: true
+  hash: sha256:3f52fbd8f56926cc647b75c2a6b54a42cc1765e7d95bf6da0825e6d8d3b1f082
+produces:
+  artifact: guarded decide function that emits only sanctioned events
+  path: crates/execution-run/src/decide.rs
+applies:
+- cell-verdict-rollup
+trace:
+  what: execution-run
+  why:
+  - cell-verdict-rollup

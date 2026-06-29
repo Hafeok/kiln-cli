@@ -1,0 +1,14 @@
+id: projector-tests-verdict-stream-view
+schema: 'shape: tests asserting the fold over a sample event sequence'
+prompt: Produce tests asserting the fold over a sample event sequence at 'crates/verdict-stream-view/tests/projector.rs' for task type 'implement-projector' (verdict-stream-view).
+model: code
+context:
+  derived_from:
+  - projector
+  frozen: true
+  hash: sha256:23f8a9134c533a0a6ab51484f0b504a79927b4dd46fa7d0f88ce2ba14a1bb4c5
+produces:
+  artifact: tests asserting the fold over a sample event sequence
+  path: crates/verdict-stream-view/tests/projector.rs
+trace:
+  what: verdict-stream-view

@@ -1,0 +1,14 @@
+id: projector-utilization-view
+schema: 'shape: the projector folding the read-model''s declared source events'
+prompt: Produce the projector folding the read-model's declared source events at 'crates/utilization-view/src/lib.rs' for task type 'implement-projector' (utilization-view).
+model: code
+context:
+  derived_from:
+  - domain:utilization-view
+  frozen: true
+  hash: sha256:572878ec534e27f340b3027b4949e4f0e60efc79424a5e164e6aebed8670e632
+produces:
+  artifact: the projector folding the read-model's declared source events
+  path: crates/utilization-view/src/lib.rs
+trace:
+  what: utilization-view

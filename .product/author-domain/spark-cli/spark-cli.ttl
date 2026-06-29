@@ -15,6 +15,18 @@ d:ctx-execution a pf:BoundedContext ;
 d:ctx-exploration a pf:BoundedContext ;
   rdfs:label "Exploration" .
 
+d:ctx-serving a pf:BoundedContext ;
+  rdfs:label "Model Serving" .
+
+d:ctx-sandbox a pf:BoundedContext ;
+  rdfs:label "Isolation" .
+
+d:ctx-stream a pf:BoundedContext ;
+  rdfs:label "Verdict Stream" .
+
+d:ctx-host a pf:BoundedContext ;
+  rdfs:label "Serving Host" .
+
 d:work-unit a pf:Entity ;
   rdfs:label "WorkUnit" ;
   pf:definition "The schedulable, reorderable, escalatable atom the executor consumes. Frozen and emitted by product dispatch, it crosses the Work-Unit Interface by value with its SPMC bundle inlined and identified by bundle_hash. Its cell_graph is a sealed interior — the executor's concern, never the queue's. Well-formed iff all of its cells require the same model binding (the binding-homogeneity invariant)." ;
@@ -90,6 +102,85 @@ d:discovery-record a pf:Entity ;
   pf:hasAttribute [ pf:attrName "candidate_slice" ; pf:attrType "object" ] ;
   pf:hasAttribute [ pf:attrName "proposed_units" ; pf:attrType "array" ] .
 
+d:resident-set a pf:Entity ;
+  rdfs:label "ResidentSet" ;
+  pf:definition "The model bindings currently resident in the box's VRAM under the active mode. A binding may load only if it fits the remaining VRAM budget; eviction frees it. On the Spark, what is resident is what can be batched — so the resident set is the gate on which cell frontiers can run right now." ;
+  pf:inContext d:ctx-serving ;
+  pf:isAggregateRoot "true" ;
+  pf:identity "set_id" ;
+  pf:hasAttribute [ pf:attrName "set_id" ; pf:attrType "string" ] ;
+  pf:hasAttribute [ pf:attrName "mode" ; pf:attrType "string" ] ;
+  pf:hasAttribute [ pf:attrName "loaded_vram" ; pf:attrType "integer" ] ;
+  pf:hasAttribute [ pf:attrName "vram_budget" ; pf:attrType "integer" ] .
+
+d:work-batch a pf:Entity ;
+  rdfs:label "WorkBatch" ;
+  pf:definition "A batch of unblocked cells, all sharing one resident binding, packed together for a single batched inference pass — the unit of work the serving substrate actually dispatches. A batch is well-formed only if every cell in it requires the resident binding (so the batch is a confound-free inference call) and it is non-empty." ;
+  pf:inContext d:ctx-serving ;
+  pf:isAggregateRoot "true" ;
+  pf:identity "batch_id" ;
+  pf:hasAttribute [ pf:attrName "batch_id" ; pf:attrType "string" ] ;
+  pf:hasAttribute [ pf:attrName "binding" ; pf:attrType "object" ] ;
+  pf:hasAttribute [ pf:attrName "cell_refs" ; pf:attrType "array" ] ;
+  pf:hasAttribute [ pf:attrName "size" ; pf:attrType "integer" ] .
+
+d:sandbox a pf:Entity ;
+  rdfs:label "Sandbox" ;
+  pf:definition "The per-unit ephemeral isolation boundary. Provisioned at admission with a private writable workspace, the frozen bundle mounted read-only, and network restricted to declared destinations; destroyed when the unit reaches a verdict. The sealed cell-DAG runs entirely inside one sandbox — that is why the cell interior is sealed: it is one isolation domain." ;
+  pf:inContext d:ctx-sandbox ;
+  pf:isAggregateRoot "true" ;
+  pf:identity "sandbox_id" ;
+  pf:hasAttribute [ pf:attrName "sandbox_id" ; pf:attrType "string" ] ;
+  pf:hasAttribute [ pf:attrName "unit_ref" ; pf:attrType "string" ] ;
+  pf:hasAttribute [ pf:attrName "workspace" ; pf:attrType "string" ] ;
+  pf:hasAttribute [ pf:attrName "declared_network" ; pf:attrType "array" ] .
+
+d:credential-lease a pf:Entity ;
+  rdfs:label "CredentialLease" ;
+  pf:definition "Short-lived, least-privilege credentials exchanged from a unit's grant-reference, scoped to the unit's declared effect destinations and bound to the lifetime of its sandbox. The executor never injects a standing secret; authority derives from the unit being executed. Revoked when the sandbox is destroyed." ;
+  pf:inContext d:ctx-sandbox ;
+  pf:isAggregateRoot "true" ;
+  pf:identity "lease_id" ;
+  pf:hasAttribute [ pf:attrName "lease_id" ; pf:attrType "string" ] ;
+  pf:hasAttribute [ pf:attrName "sandbox_id" ; pf:attrType "string" ] ;
+  pf:hasAttribute [ pf:attrName "grant_ref" ; pf:attrType "string" ] ;
+  pf:hasAttribute [ pf:attrName "ttl_seconds" ; pf:attrType "integer" ] .
+
+d:verdict-log a pf:Entity ;
+  rdfs:label "VerdictLog" ;
+  pf:definition "The durable, append-only log of emitted VerdictEvents. A verdict is appended at most once (idempotent by bundle_hash); the log is never rewritten. Consumers reconcile pending verdicts into deliverable-done at their own pace — temporal decoupling: a night verdict waits in the log until a morning reader." ;
+  pf:inContext d:ctx-stream ;
+  pf:isAggregateRoot "true" ;
+  pf:identity "log_id" ;
+  pf:hasAttribute [ pf:attrName "log_id" ; pf:attrType "string" ] ;
+  pf:hasAttribute [ pf:attrName "appended" ; pf:attrType "integer" ] ;
+  pf:hasAttribute [ pf:attrName "reconciled" ; pf:attrType "integer" ] .
+
+d:oracle-run a pf:Entity ;
+  rdfs:label "OracleRun" ;
+  pf:definition "One execution of a protected oracle gating a cell. The gate may run only against an oracle the cell-worker has no write capability over (ADR-076): a worker that can write its own oracle has no verifier. Confirms the cell-gate's integrity before its pass/fail verdict is trusted." ;
+  pf:inContext d:ctx-execution ;
+  pf:isAggregateRoot "true" ;
+  pf:identity "oracle_run_id" ;
+  pf:hasAttribute [ pf:attrName "oracle_run_id" ; pf:attrType "string" ] ;
+  pf:hasAttribute [ pf:attrName "cell_id" ; pf:attrType "string" ] ;
+  pf:hasAttribute [ pf:attrName "oracle_ref" ; pf:attrType "string" ] ;
+  pf:hasAttribute [ pf:attrName "worker_writable" ; pf:attrType "boolean" ] .
+
+d:serving-host a pf:Entity ;
+  rdfs:label "ServingHost" ;
+  pf:definition "One vLLM inference server materializing a single model binding on the box, launched as a container over SSH and serving an OpenAI-compatible endpoint. It carries the binding it serves (model + served quantization + params — homogeneous, exactly one), the container image, the ssh target it runs on, and the endpoint base URL clients reach once it is ready. Its lifecycle is phased: offline (nothing launched) → launching (container started, not yet answering) → ready (health probe passed, /v1 serving) → retired (container stopped, VRAM freed). A host is the physical counterpart of a resident-set entry; only a ready host can serve cell frontiers, and at most one host is materialized at a time." ;
+  pf:inContext d:ctx-host ;
+  pf:isAggregateRoot "true" ;
+  pf:identity "host_id" ;
+  pf:hasAttribute [ pf:attrName "host_id" ; pf:attrType "string" ] ;
+  pf:hasAttribute [ pf:attrName "mode" ; pf:attrType "string" ] ;
+  pf:hasAttribute [ pf:attrName "binding" ; pf:attrType "object" ] ;
+  pf:hasAttribute [ pf:attrName "image" ; pf:attrType "string" ] ;
+  pf:hasAttribute [ pf:attrName "ssh_target" ; pf:attrType "string" ] ;
+  pf:hasAttribute [ pf:attrName "endpoint" ; pf:attrType "string" ] ;
+  pf:hasAttribute [ pf:attrName "phase" ; pf:attrType "string" ] .
+
 d:inv-binding-homogeneity a pf:Invariant ;
   pf:statement "A work-unit is well-formed iff all of its cells require the same SPMC model binding. A binding-heterogeneous unit is a decomposition defect and must be rejected at admission, never dispatched into the executor." ;
   pf:inContext d:ctx-queue ;
@@ -134,6 +225,86 @@ d:inv-session-not-active a pf:Invariant ;
   pf:statement "A discovery record may be produced only by a session that is currently active. A record cannot be emitted before the session has started or after it has already completed." ;
   pf:inContext d:ctx-exploration ;
   pf:appliesTo d:exploration-session .
+
+d:inv-vram-budget a pf:Invariant ;
+  pf:statement "A binding may be loaded only if its VRAM cost fits the remaining budget under the active mode. The box cannot hold what does not fit; over-commit is forbidden, not handled at runtime." ;
+  pf:inContext d:ctx-serving ;
+  pf:appliesTo d:resident-set .
+
+d:inv-nothing-resident a pf:Invariant ;
+  pf:statement "A binding can be evicted only when something is resident. Evicting from an empty set is a no-op error." ;
+  pf:inContext d:ctx-serving ;
+  pf:appliesTo d:resident-set .
+
+d:inv-batch-homogeneous a pf:Invariant ;
+  pf:statement "Every cell in a batch must require the resident binding. A batch mixing bindings is a confound and cannot be a single inference call — the same funnel principle as unit homogeneity, at the batch grain." ;
+  pf:inContext d:ctx-serving ;
+  pf:appliesTo d:work-batch .
+
+d:inv-batch-empty a pf:Invariant ;
+  pf:statement "A batch must contain at least one cell. An empty batch is a scheduling defect, not a dispatchable unit of work." ;
+  pf:inContext d:ctx-serving ;
+  pf:appliesTo d:work-batch .
+
+d:inv-batch-not-formed a pf:Invariant ;
+  pf:statement "Only a formed batch may be dispatched to the model. Dispatching an unformed batch has nothing to send." ;
+  pf:inContext d:ctx-serving ;
+  pf:appliesTo d:work-batch .
+
+d:inv-undeclared-network a pf:Invariant ;
+  pf:statement "A sandbox may be provisioned only when the unit's network effects target declared destinations. Reachability beyond the declared boundary is forbidden by construction." ;
+  pf:inContext d:ctx-sandbox ;
+  pf:appliesTo d:sandbox .
+
+d:inv-no-sandbox a pf:Invariant ;
+  pf:statement "Only a provisioned sandbox can be torn down. Tearing down a non-existent boundary is a no-op error." ;
+  pf:inContext d:ctx-sandbox ;
+  pf:appliesTo d:sandbox .
+
+d:inv-lease-needs-sandbox a pf:Invariant ;
+  pf:statement "Credentials may be leased only for a live sandbox. Authority is bound to the isolation boundary; a lease without one would outlive its scope." ;
+  pf:inContext d:ctx-sandbox ;
+  pf:appliesTo d:credential-lease .
+
+d:inv-nothing-to-revoke a pf:Invariant ;
+  pf:statement "Only an active lease can be revoked. Revoking an already-revoked or non-existent lease is a no-op error." ;
+  pf:inContext d:ctx-sandbox ;
+  pf:appliesTo d:credential-lease .
+
+d:inv-idempotent-append a pf:Invariant ;
+  pf:statement "A verdict is appended at most once per bundle_hash. The log is append-only and idempotent, so at-least-once emission never duplicates a recorded verdict." ;
+  pf:inContext d:ctx-stream ;
+  pf:appliesTo d:verdict-log .
+
+d:inv-nothing-to-reconcile a pf:Invariant ;
+  pf:statement "Reconciliation runs only when there are unreconciled verdicts. Reconciling an empty backlog does nothing." ;
+  pf:inContext d:ctx-stream ;
+  pf:appliesTo d:verdict-log .
+
+d:inv-oracle-writable a pf:Invariant ;
+  pf:statement "A cell-gate may run only against an oracle the cell-worker has no write capability over. A worker that can write its own oracle is not verified (ADR-076)." ;
+  pf:inContext d:ctx-execution ;
+  pf:appliesTo d:oracle-run .
+
+d:inv-single-serving-host a pf:Invariant ;
+  pf:statement "At most one serving host may be materialized at a time: a host may be launched only when none is currently live (offline or retired). The box holds one residency in VRAM; the current host must be retired before another binding is launched. This is the one-residency-at-a-time constraint made physical, giving inv-distinct-mode teeth in hardware." ;
+  pf:inContext d:ctx-host ;
+  pf:appliesTo d:serving-host .
+
+d:inv-containerized-host a pf:Invariant ;
+  pf:statement "A serving host may be launched only as a container. The vLLM server always runs containerized on the box — the container is the reproducibility and isolation boundary for the residency. A bare-metal launch request is refused." ;
+  pf:inContext d:ctx-host ;
+  pf:appliesTo d:serving-host .
+
+d:inv-ready-needs-launch a pf:Invariant ;
+  pf:statement "A host may be confirmed ready only while it is launching. Readiness is a transition out of the launching phase; confirming a host that is offline, already ready, or retired is a defect." ;
+  pf:inContext d:ctx-host ;
+  pf:appliesTo d:serving-host .
+
+d:inv-nothing-to-retire a pf:Invariant ;
+  pf:statement "A host may be retired only when one is live — launching or ready. Retiring from offline or retired has no container to stop and is a no-op error." ;
+  pf:inContext d:ctx-host ;
+  pf:appliesTo d:serving-host .
 
 d:admit-work-unit a pf:Command ;
   rdfs:label "AdmitWorkUnit" ;
@@ -197,6 +368,90 @@ d:produce-discovery-record a pf:Command ;
   pf:inContext d:ctx-exploration ;
   pf:targets d:exploration-session ;
   pf:emits d:discovery-record-produced .
+
+d:load-binding a pf:Command ;
+  rdfs:label "LoadBinding" ;
+  pf:inContext d:ctx-serving ;
+  pf:targets d:resident-set ;
+  pf:emits d:binding-loaded .
+
+d:evict-binding a pf:Command ;
+  rdfs:label "EvictBinding" ;
+  pf:inContext d:ctx-serving ;
+  pf:targets d:resident-set ;
+  pf:emits d:binding-evicted .
+
+d:form-batch a pf:Command ;
+  rdfs:label "FormBatch" ;
+  pf:inContext d:ctx-serving ;
+  pf:targets d:work-batch ;
+  pf:emits d:batch-formed .
+
+d:dispatch-batch a pf:Command ;
+  rdfs:label "DispatchBatch" ;
+  pf:inContext d:ctx-serving ;
+  pf:targets d:work-batch ;
+  pf:emits d:batch-dispatched .
+
+d:provision-sandbox a pf:Command ;
+  rdfs:label "ProvisionSandbox" ;
+  pf:inContext d:ctx-sandbox ;
+  pf:targets d:sandbox ;
+  pf:emits d:sandbox-provisioned .
+
+d:teardown-sandbox a pf:Command ;
+  rdfs:label "TeardownSandbox" ;
+  pf:inContext d:ctx-sandbox ;
+  pf:targets d:sandbox ;
+  pf:emits d:sandbox-destroyed .
+
+d:exchange-credential a pf:Command ;
+  rdfs:label "ExchangeCredential" ;
+  pf:inContext d:ctx-sandbox ;
+  pf:targets d:credential-lease ;
+  pf:emits d:credential-leased .
+
+d:revoke-credential a pf:Command ;
+  rdfs:label "RevokeCredential" ;
+  pf:inContext d:ctx-sandbox ;
+  pf:targets d:credential-lease ;
+  pf:emits d:credential-revoked .
+
+d:append-verdict a pf:Command ;
+  rdfs:label "AppendVerdict" ;
+  pf:inContext d:ctx-stream ;
+  pf:targets d:verdict-log ;
+  pf:emits d:verdict-appended .
+
+d:reconcile-deliverable a pf:Command ;
+  rdfs:label "ReconcileDeliverable" ;
+  pf:inContext d:ctx-stream ;
+  pf:targets d:verdict-log ;
+  pf:emits d:deliverable-reconciled .
+
+d:run-gate a pf:Command ;
+  rdfs:label "RunGate" ;
+  pf:inContext d:ctx-execution ;
+  pf:targets d:oracle-run ;
+  pf:emits d:gate-confirmed .
+
+d:launch-host a pf:Command ;
+  rdfs:label "LaunchHost" ;
+  pf:inContext d:ctx-host ;
+  pf:targets d:serving-host ;
+  pf:emits d:host-launched .
+
+d:confirm-host-ready a pf:Command ;
+  rdfs:label "ConfirmHostReady" ;
+  pf:inContext d:ctx-host ;
+  pf:targets d:serving-host ;
+  pf:emits d:host-ready .
+
+d:retire-host a pf:Command ;
+  rdfs:label "RetireHost" ;
+  pf:inContext d:ctx-host ;
+  pf:targets d:serving-host ;
+  pf:emits d:host-retired .
 
 d:work-unit-enqueued a pf:Event ;
   rdfs:label "WorkUnitEnqueued" ;
@@ -263,6 +518,76 @@ d:discovery-record-produced a pf:Event ;
   pf:inContext d:ctx-exploration ;
   pf:changes d:discovery-record .
 
+d:binding-loaded a pf:Event ;
+  rdfs:label "BindingLoaded" ;
+  pf:inContext d:ctx-serving ;
+  pf:changes d:resident-set .
+
+d:binding-evicted a pf:Event ;
+  rdfs:label "BindingEvicted" ;
+  pf:inContext d:ctx-serving ;
+  pf:changes d:resident-set .
+
+d:batch-formed a pf:Event ;
+  rdfs:label "BatchFormed" ;
+  pf:inContext d:ctx-serving ;
+  pf:changes d:work-batch .
+
+d:batch-dispatched a pf:Event ;
+  rdfs:label "BatchDispatched" ;
+  pf:inContext d:ctx-serving ;
+  pf:changes d:work-batch .
+
+d:sandbox-provisioned a pf:Event ;
+  rdfs:label "SandboxProvisioned" ;
+  pf:inContext d:ctx-sandbox ;
+  pf:changes d:sandbox .
+
+d:sandbox-destroyed a pf:Event ;
+  rdfs:label "SandboxDestroyed" ;
+  pf:inContext d:ctx-sandbox ;
+  pf:changes d:sandbox .
+
+d:credential-leased a pf:Event ;
+  rdfs:label "CredentialLeased" ;
+  pf:inContext d:ctx-sandbox ;
+  pf:changes d:credential-lease .
+
+d:credential-revoked a pf:Event ;
+  rdfs:label "CredentialRevoked" ;
+  pf:inContext d:ctx-sandbox ;
+  pf:changes d:credential-lease .
+
+d:verdict-appended a pf:Event ;
+  rdfs:label "VerdictAppended" ;
+  pf:inContext d:ctx-stream ;
+  pf:changes d:verdict-log .
+
+d:deliverable-reconciled a pf:Event ;
+  rdfs:label "DeliverableReconciled" ;
+  pf:inContext d:ctx-stream ;
+  pf:changes d:verdict-log .
+
+d:gate-confirmed a pf:Event ;
+  rdfs:label "GateConfirmed" ;
+  pf:inContext d:ctx-execution ;
+  pf:changes d:oracle-run .
+
+d:host-launched a pf:Event ;
+  rdfs:label "HostLaunched" ;
+  pf:inContext d:ctx-host ;
+  pf:changes d:serving-host .
+
+d:host-ready a pf:Event ;
+  rdfs:label "HostReady" ;
+  pf:inContext d:ctx-host ;
+  pf:changes d:serving-host .
+
+d:host-retired a pf:Event ;
+  rdfs:label "HostRetired" ;
+  pf:inContext d:ctx-host ;
+  pf:changes d:serving-host .
+
 d:priority-set-view a pf:ReadModel ;
   rdfs:label "PrioritySetView" ;
   pf:projects d:work-unit-enqueued ;
@@ -291,4 +616,29 @@ d:utilization-view a pf:ReadModel ;
   pf:projects d:exploration-started ;
   pf:projects d:discovery-record-produced ;
   pf:projects d:box-mode-changed .
+
+d:residency-view a pf:ReadModel ;
+  rdfs:label "ResidencyView" ;
+  pf:projects d:binding-loaded ;
+  pf:projects d:binding-evicted .
+
+d:batch-throughput-view a pf:ReadModel ;
+  rdfs:label "BatchThroughputView" ;
+  pf:projects d:batch-dispatched .
+
+d:isolation-view a pf:ReadModel ;
+  rdfs:label "IsolationView" ;
+  pf:projects d:sandbox-provisioned ;
+  pf:projects d:sandbox-destroyed .
+
+d:reconciliation-view a pf:ReadModel ;
+  rdfs:label "ReconciliationView" ;
+  pf:projects d:verdict-appended ;
+  pf:projects d:deliverable-reconciled .
+
+d:serving-host-view a pf:ReadModel ;
+  rdfs:label "ServingHostView" ;
+  pf:projects d:host-launched ;
+  pf:projects d:host-ready ;
+  pf:projects d:host-retired .
 

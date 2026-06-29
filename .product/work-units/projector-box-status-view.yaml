@@ -1,0 +1,14 @@
+id: projector-box-status-view
+schema: 'shape: the projector folding the read-model''s declared source events'
+prompt: Produce the projector folding the read-model's declared source events at 'crates/box-status-view/src/lib.rs' for task type 'implement-projector' (box-status-view).
+model: code
+context:
+  derived_from:
+  - domain:box-status-view
+  frozen: true
+  hash: sha256:c5587ba31ccd732581d0273a9ea0a4b144f275307b40e3f2fc036ad3f89136c3
+produces:
+  artifact: the projector folding the read-model's declared source events
+  path: crates/box-status-view/src/lib.rs
+trace:
+  what: box-status-view

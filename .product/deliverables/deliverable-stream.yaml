@@ -1,0 +1,18 @@
+id: deliverable-stream
+slice: slice-stream
+acceptance:
+- id: st-idempotent
+  statement: A verdict already on the log is not appended a second time per inv-idempotent-append.
+  status: passing
+  runner: cargo-test
+  runner_args: duplicate_verdict_refused
+- id: st-reconcile
+  statement: Reconciliation runs only when there are pending verdicts per inv-nothing-to-reconcile.
+  status: passing
+  runner: cargo-test
+  runner_args: empty_backlog_refused
+- id: st-durable
+  statement: An appended verdict survives a process restart by being persisted to the log on disk.
+  status: passing
+  runner: cargo-test
+  runner_args: durable_log_is_idempotent_and_survives_reopen

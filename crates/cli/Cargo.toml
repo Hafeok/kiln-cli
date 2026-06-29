@@ -1,0 +1,26 @@
+[package]
+name = "spark-cli"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "spark"
+path = "src/main.rs"
+
+[[bin]]
+name = "spark-conform"
+path = "src/conform.rs"
+
+[dependencies]
+serde_json = { workspace = true }
+spark-interface = { workspace = true }
+spark-switch = { workspace = true }
+spark-execution = { workspace = true }
+spark-queue = { workspace = true }
+spark-exploration = { workspace = true }
+spark-executor = { workspace = true }
+spark-serving = { workspace = true }
+spark-sandbox = { workspace = true }
+spark-stream = { workspace = true }
+spark-host = { workspace = true }

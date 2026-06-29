@@ -1,0 +1,19 @@
+id: decide-fn-exploration-session
+schema: 'shape: guarded decide function that emits only sanctioned events'
+prompt: 'Produce guarded decide function that emits only sanctioned events at ''crates/exploration-session/src/decide.rs'' for task type ''implement-decider'' (exploration-session). Apply: cell-verdict-rollup.'
+model: code
+context:
+  derived_from:
+  - domain:exploration-session
+  - app-contract:spark-executor-app-contract
+  frozen: true
+  hash: sha256:8bd8a41144360a2bfe30b370e77998d189e8266f8015b019f6d78f2fa3cb176c
+produces:
+  artifact: guarded decide function that emits only sanctioned events
+  path: crates/exploration-session/src/decide.rs
+applies:
+- cell-verdict-rollup
+trace:
+  what: exploration-session
+  why:
+  - cell-verdict-rollup

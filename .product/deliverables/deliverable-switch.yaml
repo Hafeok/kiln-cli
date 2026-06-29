@@ -1,0 +1,18 @@
+id: deliverable-switch
+slice: slice-switch
+acceptance:
+- id: sw-exclusive
+  statement: Throwing the switch loads exactly one residency (QUEUE or EXPLORER) and never both in VRAM.
+  status: passing
+  runner: cargo-test
+  runner_args: flipping_queue_to_explorer_is_a_real_change
+- id: sw-distinct
+  statement: Re-throwing the already-resident mode is rejected as a no-op per inv-distinct-mode.
+  status: passing
+  runner: cargo-test
+  runner_args: rethrowing_the_resident_mode_is_rejected
+- id: sw-human-only
+  statement: A residency flip occurs only on a developer-issued throw-switch; no machine-rate process triggers one.
+  status: passing
+  runner: cargo-test
+  runner_args: the_switch_is_the_only_path_between_modes

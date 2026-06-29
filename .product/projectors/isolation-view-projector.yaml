@@ -1,0 +1,19 @@
+id: isolation-view-projector
+projects_for: isolation-view
+folds:
+- sandbox-provisioned
+- sandbox-destroyed
+over:
+- sandbox
+logic:
+  initial:
+    live: 0
+  apply:
+  - on: sandbox-provisioned
+    set: { live: "=view.live + 1" }
+  - on: sandbox-destroyed
+    set: { live: "=view.live - 1" }
+scenarios:
+- name: a provisioned then destroyed sandbox leaves none live
+  given: [sandbox-provisioned, sandbox-destroyed]
+  then: { live: 0 }

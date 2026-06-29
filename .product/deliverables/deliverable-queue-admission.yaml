@@ -1,0 +1,18 @@
+id: deliverable-queue-admission
+slice: slice-queue-admission
+acceptance:
+- id: qa-homogeneity
+  statement: A binding-heterogeneous WorkUnit is rejected at admission and never enters the priority set per inv-binding-homogeneity.
+  status: passing
+  runner: cargo-test
+  runner_args: heterogeneous_unit_is_rejected_at_admission
+- id: qa-flat-set
+  statement: Only a queued unit may be reprioritized and any reordering of the edgeless set is accepted per inv-only-queued-reorderable.
+  status: passing
+  runner: cargo-test
+  runner_args: queued_unit_can_be_reprioritized
+- id: qa-metric
+  statement: HeterogeneityRateView exposes the rejection-over-admission rate as a queryable value.
+  status: passing
+  runner: cargo-test
+  runner_args: heterogeneity_rate_counts_both

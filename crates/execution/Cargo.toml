@@ -1,0 +1,9 @@
+[package]
+name = "spark-execution"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+spark-interface = { workspace = true }
+spark-switch = { workspace = true }

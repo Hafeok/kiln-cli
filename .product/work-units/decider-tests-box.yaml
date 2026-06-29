@@ -1,0 +1,15 @@
+id: decider-tests-box
+schema: 'shape: scenario tests mirroring the decider oracle (given/when/then)'
+prompt: Produce scenario tests mirroring the decider oracle (given/when/then) at 'crates/box/tests/decider.rs' for task type 'implement-decider' (box).
+model: code
+context:
+  derived_from:
+  - decide-fn
+  - behaviour:box-decider
+  frozen: true
+  hash: sha256:613602f02adacf8116a2104f674929fa213c07c3bd25cfb508fce2a1c2354c5e
+produces:
+  artifact: scenario tests mirroring the decider oracle (given/when/then)
+  path: crates/box/tests/decider.rs
+trace:
+  what: box

@@ -1,0 +1,14 @@
+id: projector-heterogeneity-rate-view
+schema: 'shape: the projector folding the read-model''s declared source events'
+prompt: Produce the projector folding the read-model's declared source events at 'crates/heterogeneity-rate-view/src/lib.rs' for task type 'implement-projector' (heterogeneity-rate-view).
+model: code
+context:
+  derived_from:
+  - domain:heterogeneity-rate-view
+  frozen: true
+  hash: sha256:e3e43c2c021545ceef67a13035b5ccd91755ad6077e7f7f5aa836470f71c2e5f
+produces:
+  artifact: the projector folding the read-model's declared source events
+  path: crates/heterogeneity-rate-view/src/lib.rs
+trace:
+  what: heterogeneity-rate-view

@@ -1,0 +1,50 @@
+id: resident-set-decider
+decides_for: resident-set
+handles:
+- load-binding
+- evict-binding
+emits:
+- binding-loaded
+- binding-evicted
+evolves_from:
+- binding-loaded
+- binding-evicted
+rejects:
+- inv-vram-budget
+- inv-nothing-resident
+logic:
+  initial:
+    resident: false
+  evolve:
+  - on: binding-loaded
+    set: { resident: true }
+  - on: binding-evicted
+    set: { resident: false }
+  decide:
+  - on: load-binding
+    guards:
+    - expr: "command.within_budget"
+      else_reject: inv-vram-budget
+    emit: [binding-loaded]
+  - on: evict-binding
+    guards:
+    - expr: "state.resident"
+      else_reject: inv-nothing-resident
+    emit: [binding-evicted]
+scenarios:
+- name: a binding that fits the budget loads
+  given: []
+  when: { command: load-binding, with: { within_budget: true } }
+  then: { emit: [binding-loaded] }
+- name: a binding that overflows the budget is refused
+  given: []
+  when: { command: load-binding, with: { within_budget: false } }
+  then: { reject: inv-vram-budget }
+- name: a resident binding can be evicted
+  given: [binding-loaded]
+  when: evict-binding
+  then: { emit: [binding-evicted] }
+- name: evicting from an empty set is refused
+  given: []
+  when: evict-binding
+  then: { reject: inv-nothing-resident }

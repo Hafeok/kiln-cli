@@ -1,0 +1,19 @@
+id: schema-type-work-unit
+schema: 'shape: serde type carrying the bundle by value plus its bundle_hash identity'
+prompt: 'Produce serde type carrying the bundle by value plus its bundle_hash identity at ''crates/interface/src/work-unit.rs'' for task type ''wire-seam-schema'' (work-unit). Apply: read-only-bundle-mount.'
+model: code
+context:
+  derived_from:
+  - domain:work-unit
+  - app-contract:spark-executor-app-contract
+  frozen: true
+  hash: sha256:4bfcf9acb97a006777993fb74bf639144900c65d8c0f4e47db6f1d101e1219c2
+produces:
+  artifact: serde type carrying the bundle by value plus its bundle_hash identity
+  path: crates/interface/src/work-unit.rs
+applies:
+- read-only-bundle-mount
+trace:
+  what: work-unit
+  why:
+  - read-only-bundle-mount

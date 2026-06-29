@@ -11,3 +11,53 @@ evolves_from:
 rejects:
 - inv-box-must-be-explorer
 - inv-session-not-active
+logic:
+  initial:
+    phase: "idle"
+  evolve:
+  - on: exploration-started
+    set:
+      phase: "active"
+  decide:
+  - on: start-exploration
+    guards:
+    - expr: "command.box_mode == 'explorer'"
+      else_reject: inv-box-must-be-explorer
+    emit:
+    - exploration-started
+  - on: produce-discovery-record
+    guards:
+    - expr: "state.phase == 'active'"
+      else_reject: inv-session-not-active
+    emit:
+    - discovery-record-produced
+scenarios:
+- name: a session starts only while the box is in EXPLORER
+  given: []
+  when:
+    command: start-exploration
+    with:
+      box_mode: explorer
+  then:
+    emit:
+    - exploration-started
+- name: a session cannot start while the box is in QUEUE
+  given: []
+  when:
+    command: start-exploration
+    with:
+      box_mode: queue
+  then:
+    reject: inv-box-must-be-explorer
+- name: an active session produces a discovery record
+  given:
+  - exploration-started
+  when: produce-discovery-record
+  then:
+    emit:
+    - discovery-record-produced
+- name: an idle session cannot produce a discovery record
+  given: []
+  when: produce-discovery-record
+  then:
+    reject: inv-session-not-active

@@ -1,0 +1,4 @@
+id: slice-switch
+anchors:
+- ctx-switch
+depth: 2

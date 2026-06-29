@@ -1,0 +1,15 @@
+id: decider-tests-execution-run
+schema: 'shape: scenario tests mirroring the decider oracle (given/when/then)'
+prompt: Produce scenario tests mirroring the decider oracle (given/when/then) at 'crates/execution-run/tests/decider.rs' for task type 'implement-decider' (execution-run).
+model: code
+context:
+  derived_from:
+  - decide-fn
+  - behaviour:execution-run-decider
+  frozen: true
+  hash: sha256:a9b5ba3bbd74118bc2c9fe213cb934cc0c453eb5a461dd0cea8da55358011c83
+produces:
+  artifact: scenario tests mirroring the decider oracle (given/when/then)
+  path: crates/execution-run/tests/decider.rs
+trace:
+  what: execution-run

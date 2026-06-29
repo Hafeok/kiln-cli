@@ -1,0 +1,29 @@
+# Role -> capability bindings with escalation ladders.
+# A role is NOT a model (Execution Contract: Workers). The same role fills at
+# escalating bindings; escalation is unit-atomic (the whole cell-DAG re-runs at
+# the heavier binding), so a unit never splits across the day/night boundary.
+role_bindings:
+# The coder that fills a unit's cells in QUEUE. Light day binding -> heavy night
+# binding on repeated failure or foundational stakes (the role-binding-ladder).
+- role_id: cell-worker
+  default_capability: spark-coder-light
+  escalation_steps:
+  - capability: spark-coder-heavy
+    triggers:
+    - prior_attempts_ge_5
+    - stakes_foundational
+  active: true
+# Gates a cell against the protected oracle; escalates a soft-gate judgement to
+# the heavy binding when confidence is low.
+- role_id: verifier
+  default_capability: spark-verifier
+  escalation_steps:
+  - capability: spark-coder-heavy
+    triggers:
+    - confidence_below_0.5
+  active: true
+# EXPLORER-mode driver: the largest resident coder running the OpenCode loop.
+# Already the top local binding, so no further local rung.
+- role_id: explorer
+  default_capability: spark-coder-heavy
+  active: true

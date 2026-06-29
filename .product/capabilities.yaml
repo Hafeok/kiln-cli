@@ -1,0 +1,31 @@
+# Worker capability catalog — the SPMC Model layer for the Spark executor.
+# Each capability IS a model binding: identity + served quantization (encoded in
+# model_identifier, load-bearing on the Spark where quantization is what makes a
+# model fit 128GB) + endpoint. `tier` is only a routing handle over the binding.
+capabilities:
+# Light binding — QUEUE / day residency: small-medium coder, batched, many resident.
+- id: spark-coder-light
+  endpoint: worker
+  model_identifier: qwen3-coder-30b-a3b-instruct-q4_K_M
+  tier: 1
+  status: active
+# Heavy binding — night / EXPLORER-adjacent residency: the large coder, serial.
+- id: spark-coder-heavy
+  endpoint: worker
+  model_identifier: qwen3-coder-235b-a22b-instruct-q4_K_M
+  tier: 3
+  status: active
+# Verifier binding — cheap gate model for non-oracle checks (the protected
+# oracle itself is tests the worker cannot write; this backs soft gates only).
+- id: spark-verifier
+  endpoint: worker
+  model_identifier: qwen3-4b-instruct-q8_0
+  tier: 1
+  status: active
+# Off-box apex — Opus-class, NOT a box mode: define-step authoring + non-local
+# exploration. Present as the ladder apex; never a QUEUE-resident binding.
+- id: off-box-opus
+  endpoint: claude
+  model_identifier: claude-opus-4-8
+  tier: 4
+  status: active

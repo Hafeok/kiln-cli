@@ -1,0 +1,20 @@
+id: reconciliation-view-projector
+projects_for: reconciliation-view
+folds:
+- verdict-appended
+- deliverable-reconciled
+over:
+- verdict-log
+logic:
+  initial:
+    appended: 0
+    reconciled: 0
+  apply:
+  - on: verdict-appended
+    set: { appended: "=view.appended + 1" }
+  - on: deliverable-reconciled
+    set: { reconciled: "=view.reconciled + 1" }
+scenarios:
+- name: the backlog is appended minus reconciled
+  given: [verdict-appended, verdict-appended, deliverable-reconciled]
+  then: { appended: 2, reconciled: 1 }

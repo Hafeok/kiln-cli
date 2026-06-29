@@ -1,0 +1,15 @@
+id: decider-tests-work-unit
+schema: 'shape: scenario tests mirroring the decider oracle (given/when/then)'
+prompt: Produce scenario tests mirroring the decider oracle (given/when/then) at 'crates/work-unit/tests/decider.rs' for task type 'implement-decider' (work-unit).
+model: code
+context:
+  derived_from:
+  - decide-fn
+  - behaviour:work-unit-decider
+  frozen: true
+  hash: sha256:e57d1b787780bb3b8489187c88045d51fe0fcdee9395ef528f05bfa7ed8c4fb0
+produces:
+  artifact: scenario tests mirroring the decider oracle (given/when/then)
+  path: crates/work-unit/tests/decider.rs
+trace:
+  what: work-unit

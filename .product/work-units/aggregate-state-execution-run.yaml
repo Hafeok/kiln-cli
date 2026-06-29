@@ -1,0 +1,14 @@
+id: aggregate-state-execution-run
+schema: 'shape: aggregate state with the evolve fold over its events'
+prompt: Produce aggregate state with the evolve fold over its events at 'crates/execution-run/src/state.rs' for task type 'implement-decider' (execution-run).
+model: code
+context:
+  derived_from:
+  - domain:execution-run
+  frozen: true
+  hash: sha256:2ce52cf166a9bc61088b64d59bb45f8453f5f6e383a2bf526e87a33af7716554
+produces:
+  artifact: aggregate state with the evolve fold over its events
+  path: crates/execution-run/src/state.rs
+trace:
+  what: execution-run

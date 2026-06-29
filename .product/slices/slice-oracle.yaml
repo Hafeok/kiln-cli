@@ -1,0 +1,5 @@
+id: slice-oracle
+anchors:
+- oracle-run
+- run-gate
+depth: 2

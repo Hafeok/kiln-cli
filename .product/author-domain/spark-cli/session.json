@@ -18,6 +18,18 @@
       {
         "id": "ctx-exploration",
         "label": "Exploration"
+      },
+      {
+        "id": "ctx-serving",
+        "label": "Model Serving"
+      },
+      {
+        "id": "ctx-sandbox",
+        "label": "Isolation"
+      },
+      {
+        "id": "ctx-stream",
+        "label": "Verdict Stream"
       }
     ],
     "entities": [
@@ -220,6 +232,158 @@
             "type": "array"
           }
         ]
+      },
+      {
+        "id": "resident-set",
+        "label": "ResidentSet",
+        "context": "ctx-serving",
+        "definition": "The model bindings currently resident in the box's VRAM under the active mode. A binding may load only if it fits the remaining VRAM budget; eviction frees it. On the Spark, what is resident is what can be batched — so the resident set is the gate on which cell frontiers can run right now.",
+        "identity": "set_id",
+        "is_aggregate_root": true,
+        "attributes": [
+          {
+            "name": "set_id",
+            "type": "string"
+          },
+          {
+            "name": "mode",
+            "type": "string"
+          },
+          {
+            "name": "loaded_vram",
+            "type": "integer"
+          },
+          {
+            "name": "vram_budget",
+            "type": "integer"
+          }
+        ]
+      },
+      {
+        "id": "work-batch",
+        "label": "WorkBatch",
+        "context": "ctx-serving",
+        "definition": "A batch of unblocked cells, all sharing one resident binding, packed together for a single batched inference pass — the unit of work the serving substrate actually dispatches. A batch is well-formed only if every cell in it requires the resident binding (so the batch is a confound-free inference call) and it is non-empty.",
+        "identity": "batch_id",
+        "is_aggregate_root": true,
+        "attributes": [
+          {
+            "name": "batch_id",
+            "type": "string"
+          },
+          {
+            "name": "binding",
+            "type": "object"
+          },
+          {
+            "name": "cell_refs",
+            "type": "array"
+          },
+          {
+            "name": "size",
+            "type": "integer"
+          }
+        ]
+      },
+      {
+        "id": "sandbox",
+        "label": "Sandbox",
+        "context": "ctx-sandbox",
+        "definition": "The per-unit ephemeral isolation boundary. Provisioned at admission with a private writable workspace, the frozen bundle mounted read-only, and network restricted to declared destinations; destroyed when the unit reaches a verdict. The sealed cell-DAG runs entirely inside one sandbox — that is why the cell interior is sealed: it is one isolation domain.",
+        "identity": "sandbox_id",
+        "is_aggregate_root": true,
+        "attributes": [
+          {
+            "name": "sandbox_id",
+            "type": "string"
+          },
+          {
+            "name": "unit_ref",
+            "type": "string"
+          },
+          {
+            "name": "workspace",
+            "type": "string"
+          },
+          {
+            "name": "declared_network",
+            "type": "array"
+          }
+        ]
+      },
+      {
+        "id": "credential-lease",
+        "label": "CredentialLease",
+        "context": "ctx-sandbox",
+        "definition": "Short-lived, least-privilege credentials exchanged from a unit's grant-reference, scoped to the unit's declared effect destinations and bound to the lifetime of its sandbox. The executor never injects a standing secret; authority derives from the unit being executed. Revoked when the sandbox is destroyed.",
+        "identity": "lease_id",
+        "is_aggregate_root": true,
+        "attributes": [
+          {
+            "name": "lease_id",
+            "type": "string"
+          },
+          {
+            "name": "sandbox_id",
+            "type": "string"
+          },
+          {
+            "name": "grant_ref",
+            "type": "string"
+          },
+          {
+            "name": "ttl_seconds",
+            "type": "integer"
+          }
+        ]
+      },
+      {
+        "id": "verdict-log",
+        "label": "VerdictLog",
+        "context": "ctx-stream",
+        "definition": "The durable, append-only log of emitted VerdictEvents. A verdict is appended at most once (idempotent by bundle_hash); the log is never rewritten. Consumers reconcile pending verdicts into deliverable-done at their own pace — temporal decoupling: a night verdict waits in the log until a morning reader.",
+        "identity": "log_id",
+        "is_aggregate_root": true,
+        "attributes": [
+          {
+            "name": "log_id",
+            "type": "string"
+          },
+          {
+            "name": "appended",
+            "type": "integer"
+          },
+          {
+            "name": "reconciled",
+            "type": "integer"
+          }
+        ]
+      },
+      {
+        "id": "oracle-run",
+        "label": "OracleRun",
+        "context": "ctx-execution",
+        "definition": "One execution of a protected oracle gating a cell. The gate may run only against an oracle the cell-worker has no write capability over (ADR-076): a worker that can write its own oracle has no verifier. Confirms the cell-gate's integrity before its pass/fail verdict is trusted.",
+        "identity": "oracle_run_id",
+        "is_aggregate_root": true,
+        "attributes": [
+          {
+            "name": "oracle_run_id",
+            "type": "string"
+          },
+          {
+            "name": "cell_id",
+            "type": "string"
+          },
+          {
+            "name": "oracle_ref",
+            "type": "string"
+          },
+          {
+            "name": "worker_writable",
+            "type": "boolean"
+          }
+        ]
       }
     ],
     "value_objects": [],
@@ -278,6 +442,78 @@
         "statement": "A discovery record may be produced only by a session that is currently active. A record cannot be emitted before the session has started or after it has already completed.",
         "context": "ctx-exploration",
         "applies_to": "exploration-session"
+      },
+      {
+        "id": "inv-vram-budget",
+        "statement": "A binding may be loaded only if its VRAM cost fits the remaining budget under the active mode. The box cannot hold what does not fit; over-commit is forbidden, not handled at runtime.",
+        "context": "ctx-serving",
+        "applies_to": "resident-set"
+      },
+      {
+        "id": "inv-nothing-resident",
+        "statement": "A binding can be evicted only when something is resident. Evicting from an empty set is a no-op error.",
+        "context": "ctx-serving",
+        "applies_to": "resident-set"
+      },
+      {
+        "id": "inv-batch-homogeneous",
+        "statement": "Every cell in a batch must require the resident binding. A batch mixing bindings is a confound and cannot be a single inference call — the same funnel principle as unit homogeneity, at the batch grain.",
+        "context": "ctx-serving",
+        "applies_to": "work-batch"
+      },
+      {
+        "id": "inv-batch-empty",
+        "statement": "A batch must contain at least one cell. An empty batch is a scheduling defect, not a dispatchable unit of work.",
+        "context": "ctx-serving",
+        "applies_to": "work-batch"
+      },
+      {
+        "id": "inv-batch-not-formed",
+        "statement": "Only a formed batch may be dispatched to the model. Dispatching an unformed batch has nothing to send.",
+        "context": "ctx-serving",
+        "applies_to": "work-batch"
+      },
+      {
+        "id": "inv-undeclared-network",
+        "statement": "A sandbox may be provisioned only when the unit's network effects target declared destinations. Reachability beyond the declared boundary is forbidden by construction.",
+        "context": "ctx-sandbox",
+        "applies_to": "sandbox"
+      },
+      {
+        "id": "inv-no-sandbox",
+        "statement": "Only a provisioned sandbox can be torn down. Tearing down a non-existent boundary is a no-op error.",
+        "context": "ctx-sandbox",
+        "applies_to": "sandbox"
+      },
+      {
+        "id": "inv-lease-needs-sandbox",
+        "statement": "Credentials may be leased only for a live sandbox. Authority is bound to the isolation boundary; a lease without one would outlive its scope.",
+        "context": "ctx-sandbox",
+        "applies_to": "credential-lease"
+      },
+      {
+        "id": "inv-nothing-to-revoke",
+        "statement": "Only an active lease can be revoked. Revoking an already-revoked or non-existent lease is a no-op error.",
+        "context": "ctx-sandbox",
+        "applies_to": "credential-lease"
+      },
+      {
+        "id": "inv-idempotent-append",
+        "statement": "A verdict is appended at most once per bundle_hash. The log is append-only and idempotent, so at-least-once emission never duplicates a recorded verdict.",
+        "context": "ctx-stream",
+        "applies_to": "verdict-log"
+      },
+      {
+        "id": "inv-nothing-to-reconcile",
+        "statement": "Reconciliation runs only when there are unreconciled verdicts. Reconciling an empty backlog does nothing.",
+        "context": "ctx-stream",
+        "applies_to": "verdict-log"
+      },
+      {
+        "id": "inv-oracle-writable",
+        "statement": "A cell-gate may run only against an oracle the cell-worker has no write capability over. A worker that can write its own oracle is not verified (ADR-076).",
+        "context": "ctx-execution",
+        "applies_to": "oracle-run"
       }
     ],
     "context_mappings": [],
@@ -374,6 +610,105 @@
         "emits": [
           "discovery-record-produced"
         ]
+      },
+      {
+        "id": "load-binding",
+        "label": "LoadBinding",
+        "context": "ctx-serving",
+        "targets": "resident-set",
+        "emits": [
+          "binding-loaded"
+        ]
+      },
+      {
+        "id": "evict-binding",
+        "label": "EvictBinding",
+        "context": "ctx-serving",
+        "targets": "resident-set",
+        "emits": [
+          "binding-evicted"
+        ]
+      },
+      {
+        "id": "form-batch",
+        "label": "FormBatch",
+        "context": "ctx-serving",
+        "targets": "work-batch",
+        "emits": [
+          "batch-formed"
+        ]
+      },
+      {
+        "id": "dispatch-batch",
+        "label": "DispatchBatch",
+        "context": "ctx-serving",
+        "targets": "work-batch",
+        "emits": [
+          "batch-dispatched"
+        ]
+      },
+      {
+        "id": "provision-sandbox",
+        "label": "ProvisionSandbox",
+        "context": "ctx-sandbox",
+        "targets": "sandbox",
+        "emits": [
+          "sandbox-provisioned"
+        ]
+      },
+      {
+        "id": "teardown-sandbox",
+        "label": "TeardownSandbox",
+        "context": "ctx-sandbox",
+        "targets": "sandbox",
+        "emits": [
+          "sandbox-destroyed"
+        ]
+      },
+      {
+        "id": "exchange-credential",
+        "label": "ExchangeCredential",
+        "context": "ctx-sandbox",
+        "targets": "credential-lease",
+        "emits": [
+          "credential-leased"
+        ]
+      },
+      {
+        "id": "revoke-credential",
+        "label": "RevokeCredential",
+        "context": "ctx-sandbox",
+        "targets": "credential-lease",
+        "emits": [
+          "credential-revoked"
+        ]
+      },
+      {
+        "id": "append-verdict",
+        "label": "AppendVerdict",
+        "context": "ctx-stream",
+        "targets": "verdict-log",
+        "emits": [
+          "verdict-appended"
+        ]
+      },
+      {
+        "id": "reconcile-deliverable",
+        "label": "ReconcileDeliverable",
+        "context": "ctx-stream",
+        "targets": "verdict-log",
+        "emits": [
+          "deliverable-reconciled"
+        ]
+      },
+      {
+        "id": "run-gate",
+        "label": "RunGate",
+        "context": "ctx-execution",
+        "targets": "oracle-run",
+        "emits": [
+          "gate-confirmed"
+        ]
       }
     ],
     "events": [
@@ -454,6 +789,72 @@
         "label": "DiscoveryRecordProduced",
         "context": "ctx-exploration",
         "changes": "discovery-record"
+      },
+      {
+        "id": "binding-loaded",
+        "label": "BindingLoaded",
+        "context": "ctx-serving",
+        "changes": "resident-set"
+      },
+      {
+        "id": "binding-evicted",
+        "label": "BindingEvicted",
+        "context": "ctx-serving",
+        "changes": "resident-set"
+      },
+      {
+        "id": "batch-formed",
+        "label": "BatchFormed",
+        "context": "ctx-serving",
+        "changes": "work-batch"
+      },
+      {
+        "id": "batch-dispatched",
+        "label": "BatchDispatched",
+        "context": "ctx-serving",
+        "changes": "work-batch"
+      },
+      {
+        "id": "sandbox-provisioned",
+        "label": "SandboxProvisioned",
+        "context": "ctx-sandbox",
+        "changes": "sandbox"
+      },
+      {
+        "id": "sandbox-destroyed",
+        "label": "SandboxDestroyed",
+        "context": "ctx-sandbox",
+        "changes": "sandbox"
+      },
+      {
+        "id": "credential-leased",
+        "label": "CredentialLeased",
+        "context": "ctx-sandbox",
+        "changes": "credential-lease"
+      },
+      {
+        "id": "credential-revoked",
+        "label": "CredentialRevoked",
+        "context": "ctx-sandbox",
+        "changes": "credential-lease"
+      },
+      {
+        "id": "verdict-appended",
+        "label": "VerdictAppended",
+        "context": "ctx-stream",
+        "changes": "verdict-log"
+      },
+      {
+        "id": "deliverable-reconciled",
+        "label": "DeliverableReconciled",
+        "context": "ctx-stream",
+        "changes": "verdict-log"
+      },
+      {
+        "id": "gate-confirmed",
+        "label": "GateConfirmed",
+        "context": "ctx-execution",
+        "changes": "oracle-run"
       }
     ],
     "read_models": [
@@ -500,6 +901,37 @@
           "discovery-record-produced",
           "box-mode-changed"
         ]
+      },
+      {
+        "id": "residency-view",
+        "label": "ResidencyView",
+        "projects": [
+          "binding-loaded",
+          "binding-evicted"
+        ]
+      },
+      {
+        "id": "batch-throughput-view",
+        "label": "BatchThroughputView",
+        "projects": [
+          "batch-dispatched"
+        ]
+      },
+      {
+        "id": "isolation-view",
+        "label": "IsolationView",
+        "projects": [
+          "sandbox-provisioned",
+          "sandbox-destroyed"
+        ]
+      },
+      {
+        "id": "reconciliation-view",
+        "label": "ReconciliationView",
+        "projects": [
+          "verdict-appended",
+          "deliverable-reconciled"
+        ]
       }
     ],
     "wireframe_steps": [],
@@ -521,7 +953,7 @@
     "triggers": [],
     "unreifiable_rules": []
   },
-  "tool_calls": 48,
+  "tool_calls": 95,
   "started_at": "2026-06-26T11:41:54.784597372+00:00",
   "finalized": false
 }

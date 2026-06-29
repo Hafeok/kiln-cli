@@ -1,0 +1,14 @@
+id: schema-roundtrip-test-work-unit
+schema: 'shape: round-trip and hash-identity test for the schema'
+prompt: Produce round-trip and hash-identity test for the schema at 'crates/interface/tests/work-unit.rs' for task type 'wire-seam-schema' (work-unit).
+model: code
+context:
+  derived_from:
+  - schema-type
+  frozen: true
+  hash: sha256:c8adae656ea42d6f76ac112094e2b707f5812e2545d83f0b68997458c9cd16bc
+produces:
+  artifact: round-trip and hash-identity test for the schema
+  path: crates/interface/tests/work-unit.rs
+trace:
+  what: work-unit

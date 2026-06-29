@@ -1,0 +1,40 @@
+version: "0.1"
+archetype: spark-cli
+allowlist: true
+layout:
+  # --- allowlist: where each kind of thing legally lives ---
+  - id: context-crates-here
+    may_exist_here: "crates/*/src/**"
+    rationale: "each bounded context is its own crate under crates/<context>/src"
+    enforces: [component-per-context]
+  - id: crate-manifest-here
+    may_exist_here: "crates/*/Cargo.toml"
+    rationale: "each context crate's own manifest sits at its crate root"
+    enforces: [component-per-context]
+  # --- must-exist: the spine the executor needs ---
+  - id: workspace-manifest
+    must_exist: "Cargo.toml"
+    cardinality: "exactly 1"
+    rationale: "the Rust workspace root manifest orchestrates the context crates"
+    enforces: [component-per-context]
+  - id: interface-crate-required
+    must_exist: "crates/interface/src/lib.rs"
+    cardinality: "exactly 1"
+    rationale: "the WorkUnit/VerdictEvent seam schemas live in a shared interface crate"
+    enforces: [by-value-bundle]
+  - id: crate-has-manifest
+    for_each: "crates/*"
+    must_exist: "{dir}/Cargo.toml"
+    cardinality: "1 per scope"
+    rationale: "every context crate carries its own manifest"
+    enforces: [component-per-context]
+  # --- must-not-exist: secrets never in source (structural isolation) ---
+  - id: no-secrets-in-source
+    must_not_exist: "**/*.secret*"
+    rationale: "unit credentials are brokered at runtime, never committed"
+    enforces: [structural-isolation]
+  # --- no-orphans: every crate source file has a declared home ---
+  - id: no-orphans-crates
+    no_orphans: "crates/**"
+    rationale: "every crate source file must have a declared, legal home"
+    enforces: [component-per-context]

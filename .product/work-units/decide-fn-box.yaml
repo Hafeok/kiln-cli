@@ -1,0 +1,19 @@
+id: decide-fn-box
+schema: 'shape: guarded decide function that emits only sanctioned events'
+prompt: 'Produce guarded decide function that emits only sanctioned events at ''crates/box/src/decide.rs'' for task type ''implement-decider'' (box). Apply: cell-verdict-rollup.'
+model: code
+context:
+  derived_from:
+  - domain:box
+  - app-contract:spark-executor-app-contract
+  frozen: true
+  hash: sha256:4d14616a6eaffd1bb17ae23df74ad5dd74125074d445d6ee8e743b781694ecd2
+produces:
+  artifact: guarded decide function that emits only sanctioned events
+  path: crates/box/src/decide.rs
+applies:
+- cell-verdict-rollup
+trace:
+  what: box
+  why:
+  - cell-verdict-rollup

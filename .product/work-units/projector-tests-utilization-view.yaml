@@ -1,0 +1,14 @@
+id: projector-tests-utilization-view
+schema: 'shape: tests asserting the fold over a sample event sequence'
+prompt: Produce tests asserting the fold over a sample event sequence at 'crates/utilization-view/tests/projector.rs' for task type 'implement-projector' (utilization-view).
+model: code
+context:
+  derived_from:
+  - projector
+  frozen: true
+  hash: sha256:3bed1cd153cfb17fb90a0c9a5bffe7ccd76d00bc18307cc7ea57807126199e96
+produces:
+  artifact: tests asserting the fold over a sample event sequence
+  path: crates/utilization-view/tests/projector.rs
+trace:
+  what: utilization-view

@@ -1,0 +1,29 @@
+id: implement-projector
+name: "Implement a read-model projector"
+family: application
+archetype: spark-cli
+classification: supporting
+applies_when: "realising a read-model as an event-folding projector"
+does_not_apply_when: "behaviour that changes state (use implement-decider)"
+slots:
+  - name: read-model
+    kind: domain
+    dispatch: "the read-model to fold from events"
+    capture: "which read-model?"
+    audit: "the read-model exists in the What graph"
+cells:
+  - id: projector
+    artifact: "the projector folding the read-model's declared source events"
+    path: "crates/<read-model>/src/lib.rs"
+    model: code
+    derived_from: ["domain:read-model"]
+  - id: projector-tests
+    artifact: "tests asserting the fold over a sample event sequence"
+    path: "crates/<read-model>/tests/projector.rs"
+    model: code
+    derived_from: ["projector"]
+audits:
+  - id: read-model-sources
+    kind: domain-conformance
+    checks: "the read-model slot resolves and the projector folds exactly its declared source events"
+    protects: "read-model slot"

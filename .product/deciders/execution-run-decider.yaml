@@ -16,3 +16,79 @@ rejects:
 - inv-box-must-be-queue
 - inv-run-not-admitted
 - inv-no-verdict-yet
+logic:
+  initial:
+    phase: "new"
+  evolve:
+  - on: unit-admitted
+    set:
+      phase: "admitted"
+  - on: unit-verdict-computed
+    set:
+      phase: "verdict_reached"
+  - on: verdict-emitted
+    set:
+      phase: "emitted"
+  decide:
+  - on: admit-to-executor
+    guards:
+    - expr: "command.box_mode == 'queue'"
+      else_reject: inv-box-must-be-queue
+    emit:
+    - unit-admitted
+  - on: compute-unit-verdict
+    guards:
+    - expr: "state.phase == 'admitted'"
+      else_reject: inv-run-not-admitted
+    emit:
+    - unit-verdict-computed
+  - on: emit-verdict
+    guards:
+    - expr: "state.phase == 'verdict_reached'"
+      else_reject: inv-no-verdict-yet
+    emit:
+    - verdict-emitted
+scenarios:
+- name: a unit is admitted only while the box is in QUEUE
+  given: []
+  when:
+    command: admit-to-executor
+    with:
+      box_mode: queue
+  then:
+    emit:
+    - unit-admitted
+- name: admission is refused while the box is in EXPLORER
+  given: []
+  when:
+    command: admit-to-executor
+    with:
+      box_mode: explorer
+  then:
+    reject: inv-box-must-be-queue
+- name: a verdict is computed for an admitted run
+  given:
+  - unit-admitted
+  when: compute-unit-verdict
+  then:
+    emit:
+    - unit-verdict-computed
+- name: a verdict cannot be computed before admission
+  given: []
+  when: compute-unit-verdict
+  then:
+    reject: inv-run-not-admitted
+- name: a verdict event is emitted once the verdict is computed
+  given:
+  - unit-admitted
+  - unit-verdict-computed
+  when: emit-verdict
+  then:
+    emit:
+    - verdict-emitted
+- name: no verdict event may be emitted before the verdict is computed
+  given:
+  - unit-admitted
+  when: emit-verdict
+  then:
+    reject: inv-no-verdict-yet

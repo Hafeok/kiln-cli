@@ -1,0 +1,5 @@
+id: slice-interface
+anchors:
+- work-unit
+- verdict-emitted
+depth: 1

@@ -1,0 +1,14 @@
+id: aggregate-state-exploration-session
+schema: 'shape: aggregate state with the evolve fold over its events'
+prompt: Produce aggregate state with the evolve fold over its events at 'crates/exploration-session/src/state.rs' for task type 'implement-decider' (exploration-session).
+model: code
+context:
+  derived_from:
+  - domain:exploration-session
+  frozen: true
+  hash: sha256:1bab2f65dc2a1c8e27374e25bf08494438519d9fb09b2f6dd745626038fae43d
+produces:
+  artifact: aggregate state with the evolve fold over its events
+  path: crates/exploration-session/src/state.rs
+trace:
+  what: exploration-session

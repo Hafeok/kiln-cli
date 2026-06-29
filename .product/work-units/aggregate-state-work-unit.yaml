@@ -1,0 +1,14 @@
+id: aggregate-state-work-unit
+schema: 'shape: aggregate state with the evolve fold over its events'
+prompt: Produce aggregate state with the evolve fold over its events at 'crates/work-unit/src/state.rs' for task type 'implement-decider' (work-unit).
+model: code
+context:
+  derived_from:
+  - domain:work-unit
+  frozen: true
+  hash: sha256:6ff04e52f23ad8c225b6e8b9b300a5a590f07d0a54c691c1ebcf5191fbed0f80
+produces:
+  artifact: aggregate state with the evolve fold over its events
+  path: crates/work-unit/src/state.rs
+trace:
+  what: work-unit

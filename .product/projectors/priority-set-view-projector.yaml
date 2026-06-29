@@ -9,3 +9,47 @@ folds:
 over:
 - work-unit
 - execution-run
+logic:
+  initial:
+    queued: 0
+  apply:
+  - on: work-unit-enqueued
+    set:
+      queued: "=view.queued + 1"
+  - on: work-unit-reprioritized
+    set: {}
+  - on: unit-admitted
+    set:
+      queued: "=view.queued - 1"
+  - on: unit-escalated
+    set:
+      queued: "=view.queued + 1"
+  - on: unit-halted
+    set: {}
+scenarios:
+- name: an enqueued unit sits in the set and reordering does not change its size
+  given:
+  - work-unit-enqueued
+  - work-unit-reprioritized
+  then:
+    queued: 1
+- name: admitting a unit drains it from the set
+  given:
+  - work-unit-enqueued
+  - unit-admitted
+  then:
+    queued: 0
+- name: escalation re-enqueues the whole unit
+  given:
+  - work-unit-enqueued
+  - unit-admitted
+  - unit-escalated
+  then:
+    queued: 1
+- name: a halted unit leaves flight without re-entering the set
+  given:
+  - work-unit-enqueued
+  - unit-admitted
+  - unit-halted
+  then:
+    queued: 0

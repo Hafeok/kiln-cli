@@ -1,0 +1,50 @@
+id: verdict-log-decider
+decides_for: verdict-log
+handles:
+- append-verdict
+- reconcile-deliverable
+emits:
+- verdict-appended
+- deliverable-reconciled
+evolves_from:
+- verdict-appended
+- deliverable-reconciled
+rejects:
+- inv-idempotent-append
+- inv-nothing-to-reconcile
+logic:
+  initial:
+    pending: 0
+  evolve:
+  - on: verdict-appended
+    set: { pending: "=state.pending + 1" }
+  - on: deliverable-reconciled
+    set: { pending: 0 }
+  decide:
+  - on: append-verdict
+    guards:
+    - expr: "command.already_logged == false"
+      else_reject: inv-idempotent-append
+    emit: [verdict-appended]
+  - on: reconcile-deliverable
+    guards:
+    - expr: "state.pending > 0"
+      else_reject: inv-nothing-to-reconcile
+    emit: [deliverable-reconciled]
+scenarios:
+- name: a fresh verdict is appended durably
+  given: []
+  when: { command: append-verdict, with: { already_logged: false } }
+  then: { emit: [verdict-appended] }
+- name: a verdict already on the log is not appended twice
+  given: []
+  when: { command: append-verdict, with: { already_logged: true } }
+  then: { reject: inv-idempotent-append }
+- name: pending verdicts are reconciled to deliverable-done
+  given: [verdict-appended]
+  when: reconcile-deliverable
+  then: { emit: [deliverable-reconciled] }
+- name: reconciling an empty backlog is refused
+  given: []
+  when: reconcile-deliverable
+  then: { reject: inv-nothing-to-reconcile }

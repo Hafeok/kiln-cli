@@ -1,0 +1,4 @@
+id: slice-queue-admission
+anchors:
+- ctx-queue
+depth: 2

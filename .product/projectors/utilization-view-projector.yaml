@@ -11,3 +11,51 @@ over:
 - exploration-session
 - discovery-record
 - box
+logic:
+  initial:
+    mode: "off"
+    in_flight: 0
+    exploring: false
+    discoveries: 0
+  apply:
+  - on: box-mode-changed
+    set:
+      mode: "=event.mode"
+  - on: unit-admitted
+    set:
+      in_flight: "=view.in_flight + 1"
+  - on: verdict-emitted
+    set:
+      in_flight: "=view.in_flight - 1"
+  - on: exploration-started
+    set:
+      exploring: true
+  - on: discovery-record-produced
+    set:
+      exploring: false
+      discoveries: "=view.discoveries + 1"
+scenarios:
+- name: QUEUE draining a unit returns the box to idle in-flight
+  given:
+  - event: box-mode-changed
+    with:
+      mode: queue
+  - unit-admitted
+  - verdict-emitted
+  then:
+    mode: queue
+    in_flight: 0
+    exploring: false
+    discoveries: 0
+- name: EXPLORER producing a discovery record clears the exploring flag
+  given:
+  - event: box-mode-changed
+    with:
+      mode: explorer
+  - exploration-started
+  - discovery-record-produced
+  then:
+    mode: explorer
+    in_flight: 0
+    exploring: false
+    discoveries: 1

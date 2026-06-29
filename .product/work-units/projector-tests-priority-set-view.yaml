@@ -1,0 +1,14 @@
+id: projector-tests-priority-set-view
+schema: 'shape: tests asserting the fold over a sample event sequence'
+prompt: Produce tests asserting the fold over a sample event sequence at 'crates/priority-set-view/tests/projector.rs' for task type 'implement-projector' (priority-set-view).
+model: code
+context:
+  derived_from:
+  - projector
+  frozen: true
+  hash: sha256:afc842ccd08a1e1edb72f2eaa2911268abfdb37bffb02da382445099b44a782a
+produces:
+  artifact: tests asserting the fold over a sample event sequence
+  path: crates/priority-set-view/tests/projector.rs
+trace:
+  what: priority-set-view

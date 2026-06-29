@@ -1,0 +1,23 @@
+id: deliverable-verdict-escalation
+slice: slice-verdict-escalation
+acceptance:
+- id: ve-after-verdict
+  statement: A VerdictEvent is emitted only after a unit-verdict is computed per inv-no-verdict-yet, fire-and-forget.
+  status: passing
+  runner: cargo-test
+  runner_args: emit_after_verdict
+- id: ve-unit-atomic
+  statement: On a rejecting or escalating verdict with ladder headroom, the whole unit re-enqueues one binding up.
+  status: passing
+  runner: cargo-test
+  runner_args: a_failing_unit_escalates_then_halts_when_the_ladder_is_exhausted
+- id: ve-halt
+  statement: When the ladder is exhausted the unit halts in failed per inv-ladder-exhausted.
+  status: passing
+  runner: cargo-test
+  runner_args: a_failing_unit_escalates_then_halts_when_the_ladder_is_exhausted
+- id: ve-provenance
+  statement: Every accepted verdict carries the immutable bundle_hash it ran against.
+  status: passing
+  runner: cargo-test
+  runner_args: admit_then_drain_accepts_and_emits

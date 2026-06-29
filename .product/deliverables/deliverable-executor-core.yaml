@@ -1,0 +1,18 @@
+id: deliverable-executor-core
+slice: slice-executor-core
+acceptance:
+- id: ex-queue-gated
+  statement: A unit is admitted only while the box is in QUEUE per inv-box-must-be-queue, into a per-unit sandbox destroyed at verdict.
+  status: passing
+  runner: cargo-test
+  runner_args: admit_only_in_queue
+- id: ex-oracle
+  statement: Each cell is gated against a protected oracle that the cell-worker has no write capability over.
+  status: passing
+  runner: cargo-test
+  runner_args: a_failed_predecessor_blocks_its_successor
+- id: ex-computed-done
+  statement: A unit-verdict is computed as a reduction of cell-verdicts and cannot be computed before admission per inv-run-not-admitted.
+  status: passing
+  runner: cargo-test
+  runner_args: all_cells_passing_accepts

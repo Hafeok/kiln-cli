@@ -1,0 +1,17 @@
+[package]
+name = "spark-executor"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+spark-interface = { workspace = true }
+spark-switch = { workspace = true }
+spark-queue = { workspace = true }
+spark-execution = { workspace = true }
+spark-exploration = { workspace = true }
+spark-serving = { workspace = true }
+spark-sandbox = { workspace = true }
+spark-stream = { workspace = true }

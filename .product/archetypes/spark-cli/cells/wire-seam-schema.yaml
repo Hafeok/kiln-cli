@@ -1,0 +1,34 @@
+id: wire-seam-schema
+name: "Wire a Work-Unit Interface schema"
+family: application
+archetype: spark-cli
+classification: core
+applies_when: "realising a Work-Unit Interface data schema (WorkUnit in, VerdictEvent out)"
+does_not_apply_when: "an internal type that does not cross the seam"
+slots:
+  - name: schema
+    kind: domain
+    dispatch: "the seam entity or event to serialize"
+    capture: "WorkUnit or VerdictEvent?"
+    audit: "the entity/event exists in the What graph"
+cells:
+  - id: schema-type
+    artifact: "serde type carrying the bundle by value plus its bundle_hash identity"
+    path: "crates/interface/src/<schema>.rs"
+    model: code
+    derived_from: ["domain:schema", "app-contract:spark-executor-app-contract"]
+    applies: ["read-only-bundle-mount"]
+  - id: schema-roundtrip-test
+    artifact: "round-trip and hash-identity test for the schema"
+    path: "crates/interface/tests/<schema>.rs"
+    model: code
+    derived_from: ["schema-type"]
+audits:
+  - id: schema-exists
+    kind: domain-conformance
+    checks: "the schema slot resolves to a real seam entity or event"
+    protects: "schema slot"
+  - id: by-value-hash
+    kind: contract-conformance
+    checks: "the type serializes by value with bundle_hash equal to the bundle content hash"
+    protects: "schema slot"

@@ -1,0 +1,19 @@
+id: residency-view-projector
+projects_for: residency-view
+folds:
+- binding-loaded
+- binding-evicted
+over:
+- resident-set
+logic:
+  initial:
+    resident: 0
+  apply:
+  - on: binding-loaded
+    set: { resident: "=view.resident + 1" }
+  - on: binding-evicted
+    set: { resident: "=view.resident - 1" }
+scenarios:
+- name: loads and evictions net out to what is resident
+  given: [binding-loaded, binding-loaded, binding-evicted]
+  then: { resident: 1 }

@@ -1,0 +1,239 @@
+archetype: spark-cli
+version: '0.1'
+top_decisions:
+- id: two-level-control
+  decision: The box has exactly one developer-set mode (QUEUE or EXPLORER); all machine-rate dynamism lives strictly below the switch.
+  rationale: Residency flips are expensive and mixing the human-rate and machine-rate loops is the failure mode this structure exists to prevent.
+  applies_when: Any execution on the single bandwidth-bound box.
+  does_not_apply_when: Off-box (Opus-class) work, which is not a box mode.
+  licenses:
+  - capability-funnel
+  enforced_by:
+  - mode-exclusion-audit
+- id: event-seam
+  decision: The executor emits VerdictEvents fire-and-forget and never calls back across the Work-Unit Interface.
+  rationale: An event names neither producer nor consumer; the freeze is the decoupling and temporal decoupling holds across the day/night boundary.
+  licenses:
+  - computed-done
+  enforced_by:
+  - seam-audit
+- id: by-value-bundle
+  decision: WorkUnits cross by value with the SPMC bundle inlined and bundle_hash as identity.
+  rationale: A single box needs no shared store; the hash keeps a future by-reference migration additive rather than breaking.
+  licenses:
+  - frozen-input
+  enforced_by:
+  - seam-audit
+- id: component-per-context
+  decision: One crate per bounded context (switch, queue, executor, sandbox, verdict, explorer) over a shared interface crate.
+  rationale: Bounded contexts are the change-locality boundaries; a crate per context keeps volatility contained.
+  licenses:
+  - binding-homogeneity
+  enforced_by:
+  - layout-conformance
+- id: per-unit-sandbox
+  decision: Every admitted unit runs in its own ephemeral sandbox, destroyed at verdict.
+  rationale: On a shared box the model is shared but each unit's effects, filesystem and credentials must not be; the sandbox is the Environment building block by construction.
+  licenses:
+  - structural-isolation
+  enforced_by:
+  - sandbox-audit
+- id: batched-serving
+  decision: Cells run as batched inference passes against a resident model binding, not one model call per cell.
+  rationale: Batch density is the one regime the bandwidth-bound box excels at; per-call serial decode is its worst.
+  licenses:
+  - dense-frontier
+  enforced_by:
+  - batch-conformance
+- id: real-protected-oracle
+  decision: Every cell-gate runs against an oracle the worker has no write capability over.
+  rationale: A worker that can write its own oracle is unverified (ADR-076); integrity is structural, not trusted.
+  licenses:
+  - oracle-integrity
+  enforced_by:
+  - oracle-conformance
+- id: durable-stream
+  decision: VerdictEvents are written to a durable, append-only, idempotent log before the executor is done with a unit.
+  rationale: Fire-and-forget must survive restart and temporal decoupling; at-least-once emission must never duplicate.
+  licenses:
+  - at-least-once-emit
+  enforced_by:
+  - stream-conformance
+principles:
+- id: capability-funnel
+  statement: A worker holds exactly the capabilities its task needs; excess capability is an under-decomposition defect, never granted away.
+  licensed_by:
+  - two-level-control
+  realized_by:
+  - role-binding-ladder
+  enforced_by:
+  - capability-audit
+- id: computed-done
+  statement: Done is a computed reduction of cell-verdicts to a unit-verdict, never a human or worker claim.
+  licensed_by:
+  - event-seam
+  realized_by:
+  - cell-verdict-rollup
+  enforced_by:
+  - verdict-conformance
+- id: frozen-input
+  statement: A worker is a function of its frozen input alone; no knowledge tool fires after execution starts.
+  licensed_by:
+  - by-value-bundle
+  realized_by:
+  - read-only-bundle-mount
+  enforced_by:
+  - sandbox-audit
+- id: binding-homogeneity
+  statement: Every cell of a well-formed work-unit requires the same SPMC model binding.
+  licensed_by:
+  - component-per-context
+  realized_by:
+  - admission-guard
+  enforced_by:
+  - homogeneity-check
+- id: structural-isolation
+  statement: A unit's effects, filesystem and credentials are isolated from the host and from every other in-flight unit.
+  licensed_by:
+  - per-unit-sandbox
+  realized_by:
+  - ephemeral-sandbox
+  enforced_by:
+  - sandbox-audit
+- id: dense-frontier
+  statement: The executor keeps an unblocked, binding-homogeneous cell frontier dense enough to fill a batch.
+  realized_by:
+  - batch-scheduler
+  enforced_by:
+  - batch-conformance
+- id: oracle-integrity
+  statement: A cell verdict is trustworthy only if its oracle was unwritable by the worker that produced the artifact.
+  realized_by:
+  - protected-oracle-runner
+  enforced_by:
+  - oracle-conformance
+- id: at-least-once-emit
+  statement: A verdict is durably recorded at-least-once and deduplicated by bundle_hash, so none is lost or doubled.
+  realized_by:
+  - append-only-log
+  enforced_by:
+  - stream-conformance
+- id: isolation-by-construction
+  statement: A unit's effects, filesystem and credentials are confined to a per-unit boundary destroyed at verdict.
+  realized_by:
+  - ephemeral-sandbox-runtime
+  enforced_by:
+  - sandbox-conformance
+patterns:
+- id: role-binding-ladder
+  shape: A worker role fills at escalating model bindings; on a rejecting verdict the whole unit re-dispatches one binding up (unit-atomic escalation).
+  realizes:
+  - capability-funnel
+  enforced_by:
+  - capability-audit
+- id: cell-verdict-rollup
+  shape: Cell-gate outcomes reduce to a single unit-verdict inside the executor before any event is emitted.
+  realizes:
+  - computed-done
+  enforced_by:
+  - verdict-conformance
+- id: protected-oracle
+  shape: Each cell is gated against an oracle the cell-worker has no write capability over.
+  realizes:
+  - computed-done
+  enforced_by:
+  - verdict-conformance
+- id: read-only-bundle-mount
+  shape: The frozen SPMC bundle is mounted read-only inside the unit sandbox; effect tools write only to the declared workspace.
+  realizes:
+  - frozen-input
+  enforced_by:
+  - sandbox-audit
+- id: admission-guard
+  shape: The queue re-checks binding-homogeneity at admission and rejects a heterogeneous unit before it can be dispatched.
+  realizes:
+  - binding-homogeneity
+  enforced_by:
+  - homogeneity-check
+- id: ephemeral-sandbox
+  shape: Admission creates a per-unit isolation boundary (private workspace, no undeclared network, brokered credentials) destroyed at verdict.
+  realizes:
+  - structural-isolation
+  enforced_by:
+  - sandbox-audit
+- id: batch-scheduler
+  shape: A scheduler groups ready cells by resident binding into non-empty homogeneous batches and dispatches them.
+  realizes:
+  - dense-frontier
+  enforced_by:
+  - batch-conformance
+- id: protected-oracle-runner
+  shape: The gate runs the oracle in a context with no write path back to the artifact under test.
+  realizes:
+  - oracle-integrity
+  enforced_by:
+  - oracle-conformance
+- id: append-only-log
+  shape: Verdicts are appended to an immutable log keyed by bundle_hash; reconciliation reads, never rewrites.
+  realizes:
+  - at-least-once-emit
+  enforced_by:
+  - stream-conformance
+- id: ephemeral-sandbox-runtime
+  shape: Admission provisions an isolated workspace with brokered credentials; verdict tears it down and revokes them.
+  realizes:
+  - isolation-by-construction
+  enforced_by:
+  - sandbox-conformance
+application_contract:
+  id: spark-executor-app-contract
+  language: Rust
+  runtime: native, single NVIDIA DGX Spark (128GB unified memory, ~273GB/s)
+  layering:
+  - interface
+  - queue
+  - executor
+  - sandbox
+  feature_organization: one crate per bounded context over a shared interface crate
+  persistence_model: append-only VerdictEvent stream; no shared mutable store between units
+  cross_cutting:
+  - per-unit ephemeral sandbox
+  - unit-scoped short-lived credentials
+  - fire-and-forget verdict emission
+  statements:
+  - id: no-live-callback
+    statement: The executor crates carry no build dependency on product-cli and resolve nothing live mid-run.
+    enforced_by: seam-audit
+  - id: sandbox-per-unit
+    statement: Every unit admission creates an isolation boundary that is destroyed when the unit reaches a verdict.
+    enforced_by: sandbox-audit
+  - id: mode-exclusion
+    statement: At most one of the QUEUE and EXPLORER residencies is loaded in VRAM at any instant.
+    enforced_by: mode-exclusion-audit
+  - id: effect-tools-only
+    statement: Only effect-classified tools may fire during execution; knowledge tools never fire after the input is frozen.
+    enforced_by: tool-class-audit
+infrastructure_contract:
+  id: single-spark-infra
+  satisfies: spark-executor-app-contract
+  frozen: true
+  resources:
+  - id: compute
+    kind: compute
+    choice: single NVIDIA DGX Spark, developer-switched between QUEUE and EXPLORER residency
+  - id: event-stream
+    kind: data-engine
+    choice: append-only local VerdictEvent log
+    satisfies_statement: append-only VerdictEvent stream
+  - id: credential-broker
+    kind: identity
+    choice: unit-scoped short-lived credential broker bound to the sandbox lifetime
+    depends_on:
+    - compute
+interface_contracts:
+- id: work-unit-seam
+  surface: event
+  standard: Work-Unit Interface v0 (WorkUnit by value, VerdictEvent by event)
+  derived_from:
+  - domain:work-unit
+  - behaviour:emit-verdict

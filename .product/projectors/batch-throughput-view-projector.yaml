@@ -1,0 +1,16 @@
+id: batch-throughput-view-projector
+projects_for: batch-throughput-view
+folds:
+- batch-dispatched
+over:
+- work-batch
+logic:
+  initial:
+    dispatched: 0
+  apply:
+  - on: batch-dispatched
+    set: { dispatched: "=view.dispatched + 1" }
+scenarios:
+- name: each dispatched batch raises throughput
+  given: [batch-dispatched, batch-dispatched]
+  then: { dispatched: 2 }

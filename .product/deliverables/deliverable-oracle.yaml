@@ -1,0 +1,8 @@
+id: deliverable-oracle
+slice: slice-oracle
+acceptance:
+- id: or-protected
+  statement: A cell-gate runs only against an oracle the worker cannot write per inv-oracle-writable.
+  status: passing
+  runner: cargo-test
+  runner_args: gate_against_writable_oracle_is_refused

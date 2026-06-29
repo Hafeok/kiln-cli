@@ -1,0 +1,50 @@
+id: sandbox-decider
+decides_for: sandbox
+handles:
+- provision-sandbox
+- teardown-sandbox
+emits:
+- sandbox-provisioned
+- sandbox-destroyed
+evolves_from:
+- sandbox-provisioned
+- sandbox-destroyed
+rejects:
+- inv-undeclared-network
+- inv-no-sandbox
+logic:
+  initial:
+    phase: "none"
+  evolve:
+  - on: sandbox-provisioned
+    set: { phase: "provisioned" }
+  - on: sandbox-destroyed
+    set: { phase: "destroyed" }
+  decide:
+  - on: provision-sandbox
+    guards:
+    - expr: "command.network_declared"
+      else_reject: inv-undeclared-network
+    emit: [sandbox-provisioned]
+  - on: teardown-sandbox
+    guards:
+    - expr: "state.phase == 'provisioned'"
+      else_reject: inv-no-sandbox
+    emit: [sandbox-destroyed]
+scenarios:
+- name: a sandbox with only declared network is provisioned
+  given: []
+  when: { command: provision-sandbox, with: { network_declared: true } }
+  then: { emit: [sandbox-provisioned] }
+- name: a sandbox reaching an undeclared destination is refused
+  given: []
+  when: { command: provision-sandbox, with: { network_declared: false } }
+  then: { reject: inv-undeclared-network }
+- name: a provisioned sandbox is torn down at verdict
+  given: [sandbox-provisioned]
+  when: teardown-sandbox
+  then: { emit: [sandbox-destroyed] }
+- name: tearing down a non-existent sandbox is refused
+  given: []
+  when: teardown-sandbox
+  then: { reject: inv-no-sandbox }

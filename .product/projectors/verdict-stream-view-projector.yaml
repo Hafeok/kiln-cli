@@ -4,3 +4,17 @@ folds:
 - verdict-emitted
 over:
 - execution-run
+logic:
+  initial:
+    emitted: 0
+  apply:
+  - on: verdict-emitted
+    set:
+      emitted: "=view.emitted + 1"
+scenarios:
+- name: each emitted verdict appends to the stream
+  given:
+  - verdict-emitted
+  - verdict-emitted
+  then:
+    emitted: 2

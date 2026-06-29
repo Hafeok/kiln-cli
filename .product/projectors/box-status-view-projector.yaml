@@ -4,3 +4,18 @@ folds:
 - box-mode-changed
 over:
 - box
+logic:
+  initial:
+    mode: "off"
+  apply:
+  - on: box-mode-changed
+    set:
+      mode: "=event.mode"
+scenarios:
+- name: the view reflects the latest residency thrown
+  given:
+  - event: box-mode-changed
+    with:
+      mode: queue
+  then:
+    mode: queue

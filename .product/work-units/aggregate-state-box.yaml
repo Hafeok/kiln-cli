@@ -1,0 +1,14 @@
+id: aggregate-state-box
+schema: 'shape: aggregate state with the evolve fold over its events'
+prompt: Produce aggregate state with the evolve fold over its events at 'crates/box/src/state.rs' for task type 'implement-decider' (box).
+model: code
+context:
+  derived_from:
+  - domain:box
+  frozen: true
+  hash: sha256:e476a448eaf3e03a6a0bbb87eeaa91558793c2cac94de620cf6075b207834cca
+produces:
+  artifact: aggregate state with the evolve fold over its events
+  path: crates/box/src/state.rs
+trace:
+  what: box

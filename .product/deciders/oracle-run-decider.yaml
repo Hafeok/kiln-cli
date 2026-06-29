@@ -1,0 +1,26 @@
+id: oracle-run-decider
+decides_for: oracle-run
+handles:
+- run-gate
+emits:
+- gate-confirmed
+evolves_from:
+- gate-confirmed
+rejects:
+- inv-oracle-writable
+logic:
+  decide:
+  - on: run-gate
+    guards:
+    - expr: "command.oracle_protected"
+      else_reject: inv-oracle-writable
+    emit: [gate-confirmed]
+scenarios:
+- name: a gate against a worker-unwritable oracle is confirmed
+  given: []
+  when: { command: run-gate, with: { oracle_protected: true } }
+  then: { emit: [gate-confirmed] }
+- name: a gate against a worker-writable oracle is refused
+  given: []
+  when: { command: run-gate, with: { oracle_protected: false } }
+  then: { reject: inv-oracle-writable }

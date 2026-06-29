@@ -5,3 +5,23 @@ folds:
 - work-unit-rejected
 over:
 - work-unit
+logic:
+  initial:
+    admitted: 0
+    rejected: 0
+  apply:
+  - on: work-unit-enqueued
+    set:
+      admitted: "=view.admitted + 1"
+  - on: work-unit-rejected
+    set:
+      rejected: "=view.rejected + 1"
+scenarios:
+- name: admissions and rejections are counted separately
+  given:
+  - work-unit-enqueued
+  - work-unit-enqueued
+  - work-unit-rejected
+  then:
+    admitted: 2
+    rejected: 1

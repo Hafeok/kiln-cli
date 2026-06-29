@@ -1,0 +1,14 @@
+id: projector-tests-box-status-view
+schema: 'shape: tests asserting the fold over a sample event sequence'
+prompt: Produce tests asserting the fold over a sample event sequence at 'crates/box-status-view/tests/projector.rs' for task type 'implement-projector' (box-status-view).
+model: code
+context:
+  derived_from:
+  - projector
+  frozen: true
+  hash: sha256:9692f392d2b8034410f2d4c7a5d329180cd9198633953da31335114ae57f5e29
+produces:
+  artifact: tests asserting the fold over a sample event sequence
+  path: crates/box-status-view/tests/projector.rs
+trace:
+  what: box-status-view

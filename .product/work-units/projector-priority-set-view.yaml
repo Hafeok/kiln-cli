@@ -1,0 +1,14 @@
+id: projector-priority-set-view
+schema: 'shape: the projector folding the read-model''s declared source events'
+prompt: Produce the projector folding the read-model's declared source events at 'crates/priority-set-view/src/lib.rs' for task type 'implement-projector' (priority-set-view).
+model: code
+context:
+  derived_from:
+  - domain:priority-set-view
+  frozen: true
+  hash: sha256:893cf28e1ff200e0d3e361b9209b2bcadeb8448a25895d5461308998a7966791
+produces:
+  artifact: the projector folding the read-model's declared source events
+  path: crates/priority-set-view/src/lib.rs
+trace:
+  what: priority-set-view

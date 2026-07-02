@@ -3,6 +3,8 @@
 //! oracle, reduces cell-verdicts to a unit-verdict, and emits a VerdictEvent.
 //! Realises `execution-run-decider` and `verdict-stream-view`.
 
+use std::path::Path;
+
 use spark_interface::{Cell, CellResult, Consequence, Verdict};
 use spark_switch::Mode;
 
@@ -76,9 +78,37 @@ impl RunState {
     }
 }
 
-/// A protected oracle the cell-worker cannot write — it decides each cell's gate.
+/// The outcome of a workspace verification: pass/fail plus a machine-readable
+/// evidence record (the check command, exit code, and output tails) that rides
+/// on the VerdictEvent's cell-results for audit.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct GateReport {
+    pub passed: bool,
+    pub evidence: Option<serde_json::Value>,
+}
+
+/// A protected oracle the cell-worker cannot write. It gates in two registers:
+/// the in-memory per-cell `gate` (schema/structure, used by the demo walk), and
+/// `verify`, which runs the real protected check against the artifacts a unit
+/// wrote into its workspace — the gate that makes an `accepted` verdict mean
+/// "it compiles and the tests pass," not merely "the model returned something."
 pub trait Oracle {
     fn gate(&self, cell: &Cell) -> bool;
+
+    /// Verify the produced artifacts sitting in `workspace`. The default is a
+    /// pass-through (used by trivial/test oracles); a real oracle runs the
+    /// project's protected check command with `workspace` as its working dir.
+    fn verify(&self, _workspace: &Path) -> GateReport {
+        GateReport { passed: true, evidence: None }
+    }
+}
+
+/// Last `n` characters of a byte buffer, lossily decoded — for evidence tails.
+fn tail(bytes: &[u8], n: usize) -> String {
+    let s = String::from_utf8_lossy(bytes);
+    let chars: Vec<char> = s.chars().collect();
+    let start = chars.len().saturating_sub(n);
+    chars[start..].iter().collect()
 }
 
 /// Walk the sealed cell-DAG: a cell is ready once its in-unit predecessors have
@@ -96,18 +126,24 @@ pub fn walk_cells(cells: &[Cell], oracle: &dyn Oracle) -> Vec<CellResult> {
             c.depends_on.iter().all(|d| passed.contains_key(d))
         });
         let Some(idx) = ready_idx else {
-            // A cycle or a dangling dependency — record the rest as not-passed.
+            // A cycle or a dangling dependency — the rest were never gated.
             for c in &remaining {
                 passed.insert(c.cell_id.clone(), false);
-                results.push(CellResult { cell_id: c.cell_id.clone(), passed: false });
+                results.push(CellResult::skipped(c.cell_id.clone()));
             }
             break;
         };
         let cell = remaining.remove(idx);
         let preds_ok = cell.depends_on.iter().all(|d| *passed.get(d).unwrap_or(&false));
-        let ok = preds_ok && oracle.gate(cell);
-        passed.insert(cell.cell_id.clone(), ok);
-        results.push(CellResult { cell_id: cell.cell_id.clone(), passed: ok });
+        if !preds_ok {
+            // A predecessor failed — this cell is skipped, not gated.
+            passed.insert(cell.cell_id.clone(), false);
+            results.push(CellResult::skipped(cell.cell_id.clone()));
+        } else {
+            let ok = oracle.gate(cell);
+            passed.insert(cell.cell_id.clone(), ok);
+            results.push(CellResult::gated(cell.cell_id.clone(), ok));
+        }
     }
     results
 }
@@ -195,6 +231,9 @@ mod tests {
             cell_id: id.into(),
             binding: ModelBinding { model: "coder".into(), quantization: "q4".into(), params: BTreeMap::new() },
             depends_on: deps.iter().map(|s| s.to_string()).collect(),
+            prompt: format!("do {id}"),
+            schema: serde_json::json!({ "type": "string" }),
+            ..Default::default()
         }
     }
 
@@ -282,6 +321,38 @@ impl Oracle for CommandOracle {
             .map(|s| s.success())
             .unwrap_or(false)
     }
+
+    /// Run the protected check command with `workspace` as its working directory,
+    /// so it sees the artifacts this unit just wrote (e.g. `cargo test` against a
+    /// seeded clone). Fails closed if the oracle's integrity (ADR-076) is unmet.
+    fn verify(&self, workspace: &Path) -> GateReport {
+        if self.integrity().is_err() {
+            return GateReport {
+                passed: false,
+                evidence: Some(serde_json::json!({ "error": "oracle-writable", "command": self.command })),
+            };
+        }
+        match std::process::Command::new("sh")
+            .arg("-c")
+            .arg(&self.command)
+            .current_dir(workspace)
+            .output()
+        {
+            Ok(o) => GateReport {
+                passed: o.status.success(),
+                evidence: Some(serde_json::json!({
+                    "command": self.command,
+                    "exit": o.status.code(),
+                    "stdout_tail": tail(&o.stdout, 2000),
+                    "stderr_tail": tail(&o.stderr, 2000),
+                })),
+            },
+            Err(e) => GateReport {
+                passed: false,
+                evidence: Some(serde_json::json!({ "error": e.to_string(), "command": self.command })),
+            },
+        }
+    }
 }
 
 #[cfg(test)]
@@ -291,7 +362,13 @@ mod oracle_tests {
     use std::collections::BTreeMap;
 
     fn cell() -> Cell {
-        Cell { cell_id: "c".into(), binding: ModelBinding { model: "m".into(), quantization: "q".into(), params: BTreeMap::new() }, depends_on: vec![] }
+        Cell {
+            cell_id: "c".into(),
+            binding: ModelBinding { model: "m".into(), quantization: "q".into(), params: BTreeMap::new() },
+            prompt: "do c".into(),
+            schema: serde_json::json!({ "type": "string" }),
+            ..Default::default()
+        }
     }
 
     #[test]

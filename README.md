@@ -86,7 +86,8 @@ spark stream                         # print the emitted VerdictEvents
 spark mode set explorer && spark explore   # run a discovery session (EXPLORER only)
 ```
 
-A WorkUnit is JSON; `acceptance_class` is kebab-case (`auto-commit-if-green` |
+A WorkUnit is the **canonical contract JSON** — kebab-case throughout (`unit-ref`,
+`spmc-bundle`, `cell-graph`, `acceptance-class` ∈ `auto-commit-if-green` |
 `needs-verdict`). See [`docs/production-seams.md`](docs/production-seams.md) for a
 full example and the `spark serve` pipeline.
 

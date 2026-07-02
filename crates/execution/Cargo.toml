@@ -7,3 +7,4 @@ license.workspace = true
 [dependencies]
 spark-interface = { workspace = true }
 spark-switch = { workspace = true }
+serde_json = { workspace = true }

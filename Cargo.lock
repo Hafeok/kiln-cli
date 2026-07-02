@@ -167,6 +167,7 @@ dependencies = [
 name = "spark-execution"
 version = "0.1.0"
 dependencies = [
+ "serde_json",
  "spark-interface",
  "spark-switch",
 ]

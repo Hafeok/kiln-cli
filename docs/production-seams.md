@@ -151,25 +151,57 @@ spark serve
 
 ### Example WorkUnit
 
+The wire is the **canonical [contract](https://github.com/Hafeok/ai-development-contracts) encoding** (kebab-case, nested `spmc-bundle` / `cell-graph`); `spark admit` parses it and maps it into the internal model. The model binding is unit-level (`spmc-bundle.model.binding`) — the contract has no per-cell binding, so tier homogeneity holds by construction.
+
 ```json
 {
-  "unit_ref": "wu-demo-1",
-  "parent_deliverable": "deliverable-serving",
-  "bundle_hash": "sha256:demo1",
-  "spmc_bundle": {},
-  "model_binding": { "model": "coder", "quantization": "q4_k_m", "params": {} },
+  "unit-ref": "wu-demo-1",
+  "parent-deliverable": "deliverable-serving",
+  "bundle-hash": "sha256:demo1",
   "tier": "light",
-  "acceptance_class": "auto-commit-if-green",
-  "ladder_position": 0,
-  "cell_graph": [
-    { "cell_id": "test", "binding": { "model": "coder", "quantization": "q4_k_m", "params": {} }, "depends_on": [] },
-    { "cell_id": "impl", "binding": { "model": "coder", "quantization": "q4_k_m", "params": {} }, "depends_on": ["test"] }
-  ],
-  "environment": { "network": [], "workspace": "ws" },
-  "credential_grant": "grant-demo",
-  "tool_grants": []
+  "acceptance-class": "auto-commit-if-green",
+  "ladder-position": 0,
+  "artifact-delivery": { "mode": "inline" },
+  "spmc-bundle": {
+    "model": {
+      "capability-tag": "light-coder",
+      "binding": {
+        "provider": "local-vllm",
+        "model-id": "coder",
+        "quantization": "q4_k_m",
+        "invocation": { "temperature": 0 }
+      }
+    },
+    "context-pool": { "fragments": [] }
+  },
+  "cell-graph": {
+    "cells": [
+      {
+        "id": "test",
+        "requires": [],
+        "schema": { "shape-language": "prose", "document": { "type": "string" } },
+        "prompt": { "content": "Write a failing test." },
+        "context-refs": [],
+        "output": { "artifact-id": "art-test", "media-type": "text/x-rust" }
+      },
+      {
+        "id": "impl",
+        "requires": ["test"],
+        "schema": { "shape-language": "prose", "document": { "type": "string" } },
+        "prompt": { "content": "Make the test pass." },
+        "context-refs": [],
+        "output": { "artifact-id": "art-impl", "media-type": "text/x-rust" }
+      }
+    ]
+  }
 }
 ```
+
+The Execution-Contract additions spark uses to run in isolation — `environment`
+(the network/workspace boundary), `credential_grant`, `tool_grants` — ride
+**outside** the closed contract envelope. spark reads them when a producer carries
+them as a documented extension alongside these fields, and otherwise floors them
+(empty environment scoped to a per-unit workspace, no credential, no tools).
 
 ---
 

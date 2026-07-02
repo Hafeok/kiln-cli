@@ -232,9 +232,9 @@ mod tests {
     fn scheduler_groups_by_binding() {
         let b = |q: &str| ModelBinding { model: "coder".into(), quantization: q.into(), params: BTreeMap::new() };
         let cells = vec![
-            Cell { cell_id: "a".into(), binding: b("q4"), depends_on: vec![] },
-            Cell { cell_id: "b".into(), binding: b("q4"), depends_on: vec![] },
-            Cell { cell_id: "c".into(), binding: b("q8"), depends_on: vec![] },
+            Cell { cell_id: "a".into(), binding: b("q4"), ..Default::default() },
+            Cell { cell_id: "b".into(), binding: b("q4"), ..Default::default() },
+            Cell { cell_id: "c".into(), binding: b("q8"), ..Default::default() },
         ];
         let batches = schedule_batches(&cells);
         assert_eq!(batches.len(), 2); // two distinct bindings -> two homogeneous batches
@@ -260,18 +260,42 @@ pub struct OpenAiWorker {
     pub model: String,
     /// Optional bearer token (vLLM `--api-key`, hosted gateways).
     pub api_key: Option<String>,
+    /// Suppress a reasoning model's `<think>` phase (Qwen3 et al). With thinking
+    /// ON, a reasoning model spends its budget in `message.reasoning` and returns
+    /// `content: null` when it runs out — useless for artifact extraction. We send
+    /// `chat_template_kwargs.enable_thinking = false` so the answer lands in
+    /// `content`. Default true; set `SPARK_OPENAI_THINKING=on` to keep it.
+    pub disable_thinking: bool,
+    /// Token ceiling for the completion when the binding declares none. A reasoning
+    /// model needs headroom; default 2048.
+    pub max_tokens: i64,
 }
 
 impl OpenAiWorker {
-    /// Build from `SPARK_OPENAI_BASE_URL` (+ optional `_MODEL`, `_API_KEY`).
-    /// Returns `None` when no base URL is set, so callers fall back to another worker.
+    /// Build from `SPARK_OPENAI_BASE_URL` (+ optional `_MODEL`, `_API_KEY`,
+    /// `_THINKING`, `_MAX_TOKENS`). Returns `None` when no base URL is set, so
+    /// callers fall back to another worker.
     pub fn from_env() -> Option<Self> {
         let base_url = std::env::var("SPARK_OPENAI_BASE_URL").ok()?;
         Some(OpenAiWorker {
             base_url,
             model: std::env::var("SPARK_OPENAI_MODEL").unwrap_or_default(),
             api_key: std::env::var("SPARK_OPENAI_API_KEY").ok(),
+            disable_thinking: std::env::var("SPARK_OPENAI_THINKING").map(|v| v != "on").unwrap_or(true),
+            max_tokens: std::env::var("SPARK_OPENAI_MAX_TOKENS").ok().and_then(|s| s.parse().ok()).unwrap_or(2048),
         })
+    }
+
+    /// Construct pointing at a materialized host endpoint, with env-tunable
+    /// thinking/token defaults. Used by the CLI for the on-box vLLM residency.
+    pub fn for_endpoint(base_url: String, model: String, api_key: Option<String>) -> Self {
+        OpenAiWorker {
+            base_url,
+            model,
+            api_key,
+            disable_thinking: std::env::var("SPARK_OPENAI_THINKING").map(|v| v != "on").unwrap_or(true),
+            max_tokens: std::env::var("SPARK_OPENAI_MAX_TOKENS").ok().and_then(|s| s.parse().ok()).unwrap_or(2048),
+        }
     }
 }
 
@@ -282,21 +306,41 @@ impl Worker for OpenAiWorker {
             "model": model,
             "messages": [{ "role": "user", "content": prompt }],
             "stream": false,
+            "max_tokens": self.max_tokens,
         });
         // Map known binding params (strings on the Spark) onto request fields.
         if let Some(t) = binding.params.get("temperature").and_then(|v| v.parse::<f64>().ok()) {
             req["temperature"] = serde_json::json!(t);
         }
+        if let Some(p) = binding.params.get("top_p").and_then(|v| v.parse::<f64>().ok()) {
+            req["top_p"] = serde_json::json!(p);
+        }
+        if let Some(k) = binding.params.get("top_k").and_then(|v| v.parse::<i64>().ok()) {
+            req["top_k"] = serde_json::json!(k);
+        }
         if let Some(n) = binding.params.get("max_tokens").and_then(|v| v.parse::<i64>().ok()) {
             req["max_tokens"] = serde_json::json!(n);
+        }
+        // Turn off the reasoning phase so the answer lands in `content`, not
+        // `reasoning`. Harmless on non-reasoning servers (an unknown kwarg).
+        if self.disable_thinking {
+            req["chat_template_kwargs"] = serde_json::json!({ "enable_thinking": false });
         }
         let url = format!("{}/v1/chat/completions", self.base_url.trim_end_matches('/'));
         let body = http_post_json(&url, &req.to_string(), self.api_key.as_deref())?;
         let resp: serde_json::Value = serde_json::from_str(&body).map_err(|e| format!("parse response: {e}: {body}"))?;
-        resp["choices"][0]["message"]["content"]
-            .as_str()
-            .map(|s| s.to_string())
-            .ok_or_else(|| format!("no choices[0].message.content in response: {body}"))
+        let msg = &resp["choices"][0]["message"];
+        // Prefer `content`; if a reasoning model still emptied it into `reasoning`
+        // (e.g. thinking left on), fall back so the run is not lost.
+        let content = msg["content"].as_str().filter(|s| !s.is_empty());
+        let reasoning = msg["reasoning"].as_str().filter(|s| !s.is_empty());
+        match content.or(reasoning) {
+            Some(s) => Ok(s.to_string()),
+            None => {
+                let finish = resp["choices"][0]["finish_reason"].as_str().unwrap_or("?");
+                Err(format!("empty content (finish_reason={finish}); response: {body}"))
+            }
+        }
     }
 }
 
@@ -320,7 +364,7 @@ fn http_post_json(url: &str, json_body: &str, api_key: Option<&str>) -> Result<S
     let mut stream = TcpStream::connect((host, port)).map_err(|e| format!("connect {host}:{port}: {e}"))?;
     let auth = api_key.map(|k| format!("Authorization: Bearer {k}\r\n")).unwrap_or_default();
     let request = format!(
-        "POST {path} HTTP/1.1\r\nHost: {host}\r\nContent-Type: application/json\r\n{auth}\
+        "POST {path} HTTP/1.1\r\nHost: {host_port}\r\nContent-Type: application/json\r\n{auth}\
          Content-Length: {}\r\nConnection: close\r\n\r\n{json_body}",
         json_body.len()
     );
@@ -359,7 +403,7 @@ mod http_tests {
             sock.write_all(resp.as_bytes()).unwrap();
         });
 
-        let worker = OpenAiWorker { base_url: format!("http://127.0.0.1:{port}"), model: "test-model".into(), api_key: None };
+        let worker = OpenAiWorker::for_endpoint(format!("http://127.0.0.1:{port}"), "test-model".into(), None);
         let binding = ModelBinding { model: "coder".into(), quantization: "q4".into(), params: BTreeMap::new() };
         let out = worker.invoke(&binding, "write add()").unwrap();
         assert_eq!(out, "fn add(a:i32,b:i32)->i32{a+b}");

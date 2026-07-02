@@ -1,0 +1,75 @@
+{
+  "unit-ref": "WU-demo-slugify",
+  "parent-deliverable": "DL-string-utils",
+  "bundle-hash": "sha256:demo-placeholder",
+  "tier": "day",
+  "acceptance-class": "auto-commit-if-green",
+  "ladder-position": 0,
+  "artifact-delivery": {
+    "mode": "inline"
+  },
+  "spmc-bundle": {
+    "model": {
+      "capability-tag": "day-coder",
+      "binding": {
+        "provider": "local-vllm",
+        "model-id": "qwen3.6-35b",
+        "quantization": "FP8",
+        "invocation": {
+          "temperature": 0.2,
+          "top_p": 0.95,
+          "max_tokens": 512
+        }
+      }
+    },
+    "context-pool": {
+      "bundle-form-profile": "json-canonical",
+      "fragments": [
+        {
+          "id": "frag-style",
+          "role": "decision",
+          "content": "House style: pure functions, no external crates, doc-comment every public fn.",
+          "provenance": { "graph-node": "ADR-style-guide" }
+        }
+      ]
+    }
+  },
+  "cell-graph": {
+    "cells": [
+      {
+        "id": "test",
+        "requires": [],
+        "schema": {
+          "shape-language": "prose",
+          "document": { "type": "string", "description": "a single rust test fn" }
+        },
+        "prompt": {
+          "content": "Write ONE Rust #[test] function named slugify_basic that asserts slugify(\"Hello World!\") == \"hello-world\". Output only the code, no prose."
+        },
+        "context-refs": ["frag-style"],
+        "output": {
+          "artifact-id": "art-slugify-test",
+          "media-type": "text/x-rust",
+          "path": "slugify_test.rs"
+        }
+      },
+      {
+        "id": "impl",
+        "requires": ["test"],
+        "schema": {
+          "shape-language": "prose",
+          "document": { "type": "string", "description": "a single rust fn" }
+        },
+        "prompt": {
+          "content": "Write a Rust function `pub fn slugify(s: &str) -> String` that lowercases, replaces runs of non-alphanumeric chars with a single '-', and trims leading/trailing '-'. Output only the code, no prose."
+        },
+        "context-refs": ["frag-style"],
+        "output": {
+          "artifact-id": "art-slugify-impl",
+          "media-type": "text/x-rust",
+          "path": "slugify.rs"
+        }
+      }
+    ]
+  }
+}

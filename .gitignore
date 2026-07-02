@@ -1,0 +1,8 @@
+# Rust build artifacts
+/target
+
+# Runtime state
+/.spark/
+
+# Product CLI session run artifacts
+/.product/sessions/

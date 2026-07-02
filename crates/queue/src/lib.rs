@@ -85,10 +85,15 @@ impl UnitState {
     }
 }
 
-/// Decide admission for a concrete frozen unit, computing homogeneity from the
-/// binding (the executor-side admission guard you re-run defensively).
+/// Decide admission for a concrete frozen unit. Runs the full contracts-layer
+/// structural validation (`WorkUnit::validate`: binding-homogeneity, no cross-unit
+/// `requires` edge, every `context_refs` id resolving, every cell executable) and
+/// rejects any non-conforming unit with its specific invariant id before enqueue.
+/// This is the "validate against the normative schema + structural check, reject
+/// non-conforming units" consumer obligation, re-run defensively at admission.
 pub fn decide_admission(unit: &WorkUnit) -> Result<Vec<UnitEvent>, &'static str> {
-    UnitState::default().decide(&UnitCommand::Admit { homogeneous: unit.is_binding_homogeneous() })
+    unit.validate()?;
+    UnitState::default().decide(&UnitCommand::Admit { homogeneous: true })
 }
 
 /// `priority-set-view` projector: the size of the flat queued set.

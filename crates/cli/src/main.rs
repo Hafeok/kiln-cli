@@ -186,10 +186,12 @@ fn cmd_admit(file: &str) -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    let unit: WorkUnit = match serde_json::from_str(&text) {
+    // The wire is the canonical contract encoding (kebab-case, nested spmc-bundle /
+    // cell-graph). Parse and map it into spark's internal projection at the seam.
+    let unit: WorkUnit = match WorkUnit::from_canonical_json(&text) {
         Ok(u) => u,
         Err(err) => {
-            eprintln!("invalid WorkUnit JSON: {err}");
+            eprintln!("invalid WorkUnit JSON (expected canonical contract encoding): {err}");
             return ExitCode::from(2);
         }
     };
@@ -256,7 +258,7 @@ fn cmd_serve() -> ExitCode {
     let worker: Box<dyn Worker> = if e.host.phase == HostPhase::Ready && e.host_handle.is_some() {
         let h = e.host_handle.clone().unwrap();
         eprintln!("worker: materialized vLLM host @ {}", h.endpoint);
-        Box::new(OpenAiWorker { base_url: h.endpoint, model: h.model, api_key: std::env::var("SPARK_OPENAI_API_KEY").ok() })
+        Box::new(OpenAiWorker::for_endpoint(h.endpoint, h.model, std::env::var("SPARK_OPENAI_API_KEY").ok()))
     } else if let Some(http) = OpenAiWorker::from_env() {
         eprintln!("worker: OpenAI HTTP @ {}", http.base_url);
         Box::new(http)
@@ -267,12 +269,29 @@ fn cmd_serve() -> ExitCode {
         eprintln!("worker: offline stub (set SPARK_OPENAI_BASE_URL or SPARK_WORKER_CMD for a real model)");
         Box::new(StubWorker)
     };
-    // A protected oracle (worker_writable: false). With no command, fall back to
-    // a trivially-passing protected oracle so the loop runs offline.
+    // A protected oracle (worker_writable: false) — its command runs in the
+    // seeded workspace against the produced artifacts. With no command, fall back
+    // to pass-all so the loop runs offline, but WARN: a pass-all verdict means
+    // "the model returned something", not "it builds and tests pass".
     let oracle: Box<dyn Oracle> = match std::env::var("SPARK_ORACLE_CMD") {
-        Ok(cmd) => Box::new(CommandOracle { command: cmd, worker_writable: false }),
-        Err(_) => Box::new(CommandOracle { command: "true".into(), worker_writable: false }),
+        Ok(cmd) => {
+            eprintln!("oracle: `{cmd}` (protected, runs in the seeded workspace)");
+            Box::new(CommandOracle { command: cmd, worker_writable: false })
+        }
+        Err(_) => {
+            eprintln!("oracle: pass-all (set SPARK_ORACLE_CMD='cargo test' for a REAL gate — verdicts are not meaningful without it)");
+            Box::new(CommandOracle { command: "true".into(), worker_writable: false })
+        }
     };
+    // The product checkout to seed each sandbox from, so the oracle builds/tests
+    // in a real project tree. Absent ⇒ an empty sandbox (inline-eval only).
+    let seed = std::env::var("SPARK_WORKSPACE_SEED").ok().map(PathBuf::from);
+    if let Some(s) = &seed {
+        eprintln!("seed: {} (each unit runs in a fresh clone)", s.display());
+    } else {
+        eprintln!("seed: none (set SPARK_WORKSPACE_SEED=/path/to/repo to build/test artifacts in a real tree)");
+    }
+    let deliveries = PathBuf::from(".spark/deliveries");
     let mut log = match DurableLog::open(".spark/verdicts.jsonl") {
         Ok(l) => l,
         Err(err) => {
@@ -283,7 +302,16 @@ fn cmd_serve() -> ExitCode {
 
     let mut drained = 0;
     loop {
-        let outcome = match e.drain_one_isolated(&sandbox, &broker, worker.as_ref(), oracle.as_ref(), &mut log, &now()) {
+        let outcome = match e.drain_one_isolated(
+            &sandbox,
+            &broker,
+            worker.as_ref(),
+            oracle.as_ref(),
+            &mut log,
+            seed.as_deref(),
+            Some(deliveries.as_path()),
+            &now(),
+        ) {
             Ok(o) => o,
             Err(err) => {
                 eprintln!("isolated drain failed: {err}");
@@ -292,9 +320,17 @@ fn cmd_serve() -> ExitCode {
             }
         };
         match outcome {
-            DrainOutcome::Accepted { unit_ref } => println!("  accepted   {unit_ref}  (sandbox provisioned → worker → oracle → logged → torn down)"),
-            DrainOutcome::Escalated { unit_ref, to_ladder } => println!("  escalated  {unit_ref} -> ladder {to_ladder}"),
-            DrainOutcome::Halted { unit_ref } => println!("  halted     {unit_ref} (ladder exhausted)"),
+            DrainOutcome::Accepted { unit_ref } => {
+                let safe: String = unit_ref.chars().map(|c| if c.is_alphanumeric() || c == '-' { c } else { '_' }).collect();
+                let patch = deliveries.join(format!("{safe}.patch"));
+                if patch.exists() {
+                    println!("  accepted   {unit_ref}  (verified → patch: {})", patch.display());
+                } else {
+                    println!("  accepted   {unit_ref}  (verified; no diff to deliver)");
+                }
+            }
+            DrainOutcome::Escalated { unit_ref, to_ladder } => println!("  escalated  {unit_ref} -> ladder {to_ladder} (verification failed; retrying one tier up)"),
+            DrainOutcome::Halted { unit_ref } => println!("  halted     {unit_ref} (ladder exhausted — verification never passed)"),
             DrainOutcome::Idle | DrainOutcome::NotQueueMode => break,
         }
         drained += 1;
@@ -330,6 +366,23 @@ fn cmd_stream() -> ExitCode {
             "{}  unit={}  verdict={:?}  tier={}  next={:?}  hash={}",
             v.event_id, v.unit_ref, v.verdict, v.tier_ran, v.next_consequence, v.bundle_hash
         );
+        for c in &v.cell_results {
+            match &c.artifact {
+                Some(a) => {
+                    let where_ = match &a.delivery {
+                        spark_interface::ArtifactBody::Inline { content } => {
+                            let preview: String = content.chars().take(60).collect();
+                            format!("inline: {}", preview.replace('\n', " "))
+                        }
+                        spark_interface::ArtifactBody::Workspace { path, reference } => {
+                            format!("workspace: {path} @ {reference}")
+                        }
+                    };
+                    println!("    cell {:8} {:?}  [{}]  {}", c.cell_id, c.verdict, a.content_hash, where_);
+                }
+                None => println!("    cell {:8} {:?}", c.cell_id, c.verdict),
+            }
+        }
     }
     ExitCode::SUCCESS
 }

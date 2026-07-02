@@ -11,7 +11,9 @@ use serde::{Deserialize, Serialize};
 use spark_execution::{consequence_of, reduce_verdict, walk_cells, Oracle, RunCommand, RunState};
 use spark_host::{probe_ready, HostCommand, HostHandle, HostSpec, HostState, ResidencyHost, ServingHostView};
 use spark_exploration::{SessionCommand, SessionState};
-use spark_interface::{Verdict, VerdictEvent, WorkUnit};
+use spark_interface::{
+    Artifact, ArtifactBody, ArtifactDelivery, Cell, Verdict, VerdictEvent, WorkUnit, content_hash,
+};
 use spark_queue::{decide_admission, HeterogeneityRateView, PrioritySetView, UnitCommand, UnitEvent, UnitState};
 use spark_switch::{BoxCommand, BoxState, BoxStatusView, Mode};
 
@@ -299,7 +301,7 @@ impl Engine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use spark_interface::{AcceptanceClass, Cell, Environment, ModelBinding};
+    use spark_interface::{Cell, ModelBinding};
     use std::collections::BTreeMap;
 
     struct AllPass;
@@ -315,6 +317,17 @@ mod tests {
         ModelBinding { model: model.into(), quantization: q.into(), params: BTreeMap::new() }
     }
 
+    fn exec_cell(id: &str, b: ModelBinding, deps: &[&str]) -> Cell {
+        Cell {
+            cell_id: id.into(),
+            binding: b,
+            depends_on: deps.iter().map(|s| s.to_string()).collect(),
+            prompt: format!("do {id}"),
+            schema: serde_json::json!({ "type": "string" }),
+            ..Default::default()
+        }
+    }
+
     fn unit(unit_ref: &str, cells: Vec<Cell>, b: ModelBinding) -> WorkUnit {
         WorkUnit {
             unit_ref: unit_ref.into(),
@@ -323,18 +336,21 @@ mod tests {
             spmc_bundle: serde_json::json!({}),
             model_binding: b,
             tier: "light".into(),
-            acceptance_class: AcceptanceClass::AutoCommitIfGreen,
-            ladder_position: 0,
             cell_graph: cells,
-            environment: Environment::default(),
-            credential_grant: None,
-            tool_grants: vec![],
+            ..Default::default()
         }
     }
 
     fn one_cell_unit(r: &str) -> WorkUnit {
         let b = binding("coder", "q4");
-        unit(r, vec![Cell { cell_id: "c".into(), binding: b.clone(), depends_on: vec![] }], b)
+        unit(r, vec![exec_cell("c", b.clone(), &[])], b)
+    }
+
+    #[test]
+    fn strip_code_fences_extracts_the_block() {
+        assert_eq!(strip_code_fences("```rust\nfn a(){}\n```"), "fn a(){}");
+        assert_eq!(strip_code_fences("here:\n```\nx\n```\ndone"), "x");
+        assert_eq!(strip_code_fences("no fences here"), "no fences here");
     }
 
     #[test]
@@ -361,7 +377,7 @@ mod tests {
         let mut e = Engine::new();
         let mixed = unit(
             "bad",
-            vec![Cell { cell_id: "c".into(), binding: binding("coder", "q8"), depends_on: vec![] }],
+            vec![Cell { cell_id: "c".into(), binding: binding("coder", "q8"), ..Default::default() }],
             binding("coder", "q4"),
         );
         assert_eq!(e.admit(mixed), Err("inv-binding-homogeneity"));
@@ -438,15 +454,196 @@ mod tests {
 // ───────────────────── production drain (all seams composed) ─────────────
 
 use spark_sandbox::{CredentialBroker, LeaseCommand, LeaseState, SandboxCommand, SandboxRuntime, SandboxState};
-use spark_serving::{schedule_batches, BatchCommand, BatchState, Worker};
+use spark_serving::{BatchCommand, BatchState, Worker};
 use spark_stream::DurableLog;
+
+/// Assemble a cell's worker prompt from its frozen inputs: the selected context
+/// fragments (C, in `context_refs` order), then the artifacts produced by this
+/// cell's prerequisites (so a test-first `impl` cell sees the `test` it must
+/// satisfy), then the inline prompt (P). No callback — every input is resolved
+/// from the unit or from prior cells in this same run. A legacy unit with no
+/// inline prompt falls back to a synthetic label.
+fn build_prompt(unit: &WorkUnit, cell: &Cell, produced_content: &std::collections::BTreeMap<String, String>) -> String {
+    let mut s = String::new();
+    for r in &cell.context_refs {
+        if let Some(frag) = unit.context_pool.get(r) {
+            s.push_str(&frag.content);
+            s.push_str("\n\n");
+        }
+    }
+    for dep in &cell.depends_on {
+        if let Some(content) = produced_content.get(dep) {
+            s.push_str(&format!("--- artifact produced by prerequisite cell `{dep}` ---\n{content}\n\n"));
+        }
+    }
+    if cell.prompt.trim().is_empty() {
+        s.push_str(&format!("unit {} cell {}", unit.unit_ref, cell.cell_id));
+    } else {
+        s.push_str(&cell.prompt);
+    }
+    s
+}
+
+/// The artifact id and workspace-relative path for a cell's output. Falls back to
+/// the cell id when the cell did not declare an `output` (a bare contract cell).
+fn artifact_id_and_path(cell: &Cell) -> (String, String) {
+    match &cell.output {
+        Some(o) => {
+            let path = o.path.clone().unwrap_or_else(|| format!("{}.out", cell.cell_id));
+            (o.artifact_id.clone(), path)
+        }
+        None => (cell.cell_id.clone(), format!("{}.out", cell.cell_id)),
+    }
+}
+
+/// Extract the code from a model response: if it fenced the answer in a ```` ```lang ````
+/// block, return the block's body; otherwise return the text unchanged. Keeps
+/// artifacts compilable when the model adds fences despite being asked not to.
+fn strip_code_fences(s: &str) -> String {
+    let t = s.trim();
+    if let Some(start) = t.find("```") {
+        let after = &t[start + 3..];
+        // drop the rest of the opening fence line (the language tag, if any)
+        let after = match after.find('\n') {
+            Some(i) => &after[i + 1..],
+            None => after,
+        };
+        return match after.find("```") {
+            Some(end) => after[..end].trim_end().to_string(),
+            None => after.trim_end().to_string(),
+        };
+    }
+    s.to_string()
+}
+
+/// A dependency order over the cell-graph (Kahn's algorithm). Cells with unmet or
+/// dangling deps are appended last so every cell is still processed exactly once.
+fn topo_order(cells: &[Cell]) -> Vec<usize> {
+    use std::collections::BTreeMap;
+    let idx: BTreeMap<&str, usize> = cells.iter().enumerate().map(|(i, c)| (c.cell_id.as_str(), i)).collect();
+    let mut indeg = vec![0usize; cells.len()];
+    for (i, c) in cells.iter().enumerate() {
+        for d in &c.depends_on {
+            if idx.contains_key(d.as_str()) {
+                indeg[i] += 1;
+            }
+        }
+    }
+    let mut queue: Vec<usize> = (0..cells.len()).filter(|&i| indeg[i] == 0).collect();
+    let mut order = Vec::new();
+    let mut qi = 0;
+    while qi < queue.len() {
+        let i = queue[qi];
+        qi += 1;
+        order.push(i);
+        for (j, c) in cells.iter().enumerate() {
+            if c.depends_on.iter().any(|d| idx.get(d.as_str()) == Some(&i)) {
+                indeg[j] -= 1;
+                if indeg[j] == 0 {
+                    queue.push(j);
+                }
+            }
+        }
+    }
+    for i in 0..cells.len() {
+        if !order.contains(&i) {
+            order.push(i);
+        }
+    }
+    order
+}
+
+/// Seed a fresh workspace from a real product checkout so the oracle can build and
+/// test the artifacts in a real project tree. A git checkout is cloned (fast, and
+/// it excludes build output and untracked cruft); anything else is copied,
+/// skipping heavy build/VCS dirs.
+fn seed_workspace(seed: &std::path::Path, workspace: &std::path::Path) -> std::io::Result<()> {
+    if seed.join(".git").is_dir() {
+        let status = std::process::Command::new("git")
+            .args(["clone", "--quiet", "--local", "--no-hardlinks"])
+            .arg(seed)
+            .arg(workspace)
+            .status();
+        if matches!(status, Ok(s) if s.success()) {
+            return Ok(());
+        }
+        // fall through to a plain copy if git is unavailable or the clone failed
+    }
+    copy_dir_excluding(seed, workspace, &["target", ".git", "node_modules", "bin", "obj", ".spark"])
+}
+
+/// Recursive copy of `src` into `dst`, skipping directory names in `exclude`.
+fn copy_dir_excluding(src: &std::path::Path, dst: &std::path::Path, exclude: &[&str]) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        if exclude.iter().any(|e| std::ffi::OsStr::new(e) == name) {
+            continue;
+        }
+        let from = entry.path();
+        let to = dst.join(&name);
+        if from.is_dir() {
+            copy_dir_excluding(&from, &to, exclude)?;
+        } else {
+            std::fs::copy(&from, &to)?;
+        }
+    }
+    Ok(())
+}
+
+/// Ensure the workspace is a git repo with a committed baseline, so a subsequent
+/// `git diff` captures exactly what the unit produced. A cloned checkout already
+/// has history; a copied/empty tree gets an `init` + baseline commit. Best-effort:
+/// if git is unavailable, patch emission simply yields nothing.
+fn ensure_git_baseline(workspace: &std::path::Path) {
+    if workspace.join(".git").is_dir() {
+        return;
+    }
+    let git = |args: &[&str]| {
+        let _ = std::process::Command::new("git").arg("-C").arg(workspace).args(args).status();
+    };
+    git(&["init", "-q"]);
+    git(&["add", "-A"]);
+    git(&["-c", "user.email=spark@local", "-c", "user.name=spark", "commit", "-q", "-m", "seed baseline", "--allow-empty"]);
+}
+
+/// Emit a reviewable unified diff of everything the unit changed in `workspace` to
+/// `out_path`. Returns the path when a non-empty patch was written. Best-effort:
+/// no git, or no changes, yields `None`.
+fn emit_patch(workspace: &std::path::Path, out_path: &std::path::Path) -> Option<String> {
+    if !workspace.join(".git").is_dir() {
+        return None;
+    }
+    // Exclude build output the oracle produced (e.g. `cargo test` creates target/)
+    // so the delivered diff is just the unit's source changes.
+    let excludes = [":!target", ":!node_modules", ":!bin", ":!obj", ":!.spark", ":!.git"];
+    let mut add = std::process::Command::new("git");
+    add.arg("-C").arg(workspace).args(["add", "-A", "--", "."]).args(excludes);
+    let _ = add.status();
+    let mut diff = std::process::Command::new("git");
+    diff.arg("-C").arg(workspace).args(["diff", "--cached", "--", "."]).args(excludes);
+    let out = diff.output().ok()?;
+    if out.stdout.is_empty() {
+        return None;
+    }
+    if let Some(parent) = out_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    std::fs::write(out_path, &out.stdout).ok()?;
+    Some(out_path.display().to_string())
+}
 
 impl Engine {
     /// Drain one unit through the full production path: provision a per-unit
-    /// sandbox, broker credentials, run the unblocked frontier as batched worker
-    /// invocations gated by a protected oracle, reduce to a verdict, append it to
-    /// the durable log (idempotent), then tear the sandbox down and revoke creds.
-    /// Every step is gated by its decider; effects land only inside the sandbox.
+    /// sandbox (optionally SEEDED from a real product checkout), broker
+    /// credentials, invoke the worker per cell in dependency order (each cell fed
+    /// its prerequisites' artifacts + selected context), VERIFY the produced
+    /// artifacts against a protected oracle running in the workspace (e.g. `cargo
+    /// test` — the gate that makes `accepted` mean "it builds and tests pass"),
+    /// reduce to a verdict, append it to the durable log, emit a reviewable patch
+    /// on accept, then tear the sandbox down and revoke creds. Every step is gated
+    /// by its decider; effects land only inside the sandbox.
     #[allow(clippy::too_many_arguments)]
     pub fn drain_one_isolated(
         &mut self,
@@ -455,6 +652,8 @@ impl Engine {
         worker: &dyn Worker,
         oracle: &dyn Oracle,
         log: &mut DurableLog,
+        seed: Option<&std::path::Path>,
+        deliveries_dir: Option<&std::path::Path>,
         now: &str,
     ) -> std::io::Result<DrainOutcome> {
         if self.mode != Mode::Queue {
@@ -467,12 +666,22 @@ impl Engine {
         self.priority_view.on_admitted();
         self.utilization.in_flight += 1;
 
-        // 1. Environment: provision the per-unit sandbox (network declared by construction).
+        // 1. Environment: provision the per-unit sandbox (network declared by
+        //    construction) and, when a product checkout is named, seed it so the
+        //    oracle can build/test the artifacts in a real project tree.
         let mut sbx = SandboxState::default();
         for e in sbx.decide(&SandboxCommand::Provision { network_declared: true }).expect("declared network provisions") {
             sbx.evolve(&e);
         }
         let workspace = sandbox.provision(&unit.unit_ref)?;
+        if let Some(seed) = seed {
+            seed_workspace(seed, &workspace)?;
+        }
+        if deliveries_dir.is_some() {
+            // A git baseline lets us emit a reviewable diff regardless of how the
+            // workspace was seeded (cloned repo keeps its own history).
+            ensure_git_baseline(&workspace);
+        }
 
         // 2. Credentials: exchange the grant-reference for a short-lived lease (if any).
         let mut lease = LeaseState::default();
@@ -483,27 +692,65 @@ impl Engine {
             broker.exchange(grant)
         });
 
-        // 3. Serving: batch the frontier by binding and invoke the worker; each
-        //    cell's artifact is written INSIDE the sandbox (a declared effect).
-        for (binding, cell_ids) in schedule_batches(&unit.cell_graph) {
+        // 3. Serving: invoke the worker per cell in DEPENDENCY ORDER, feeding each
+        //    cell its selected context (C) and its prerequisites' produced
+        //    artifacts (so a test-first `impl` cell sees the `test` it must
+        //    satisfy). Each artifact is content-hashed and written INTO the
+        //    workspace; its verdict transport follows the declared delivery mode.
+        if !unit.cell_graph.is_empty() {
             let mut batch = BatchState::default();
-            for e in batch.decide(&BatchCommand::Form { homogeneous: true, nonempty: !cell_ids.is_empty() }).expect("homogeneous nonempty batch") {
+            for e in batch.decide(&BatchCommand::Form { homogeneous: true, nonempty: true }).expect("homogeneous nonempty batch") {
                 batch.evolve(&e);
             }
             for e in batch.decide(&BatchCommand::Dispatch).expect("formed batch dispatches") {
                 batch.evolve(&e);
             }
-            for cell_id in &cell_ids {
-                let prompt = format!("unit {} cell {}", unit.unit_ref, cell_id);
-                if let Ok(artifact) = worker.invoke(&binding, &prompt) {
-                    let _ = std::fs::write(workspace.join(format!("{cell_id}.out")), artifact);
+        }
+        let mut produced: std::collections::BTreeMap<String, Artifact> = std::collections::BTreeMap::new();
+        let mut produced_content: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
+        for i in topo_order(&unit.cell_graph) {
+            let cell = &unit.cell_graph[i];
+            let prompt = build_prompt(&unit, cell, &produced_content);
+            if let Ok(raw) = worker.invoke(&cell.binding, &prompt) {
+                // Models fence code in ```lang blocks; the artifact is the code
+                // itself, so extract it before writing/hashing/delivering.
+                let content = strip_code_fences(&raw);
+                let (artifact_id, rel_path) = artifact_id_and_path(cell);
+                if let Some(parent) = std::path::Path::new(&rel_path).parent() {
+                    if !parent.as_os_str().is_empty() {
+                        let _ = std::fs::create_dir_all(workspace.join(parent));
+                    }
                 }
+                let _ = std::fs::write(workspace.join(&rel_path), &content);
+                let delivery = match &unit.artifact_delivery {
+                    ArtifactDelivery::Inline => ArtifactBody::Inline { content: content.clone() },
+                    ArtifactDelivery::Workspace { reference, .. } => {
+                        ArtifactBody::Workspace { path: rel_path.clone(), reference: reference.clone() }
+                    }
+                };
+                produced.insert(
+                    cell.cell_id.clone(),
+                    Artifact { artifact_id, content_hash: content_hash(content.as_bytes()), delivery },
+                );
+                produced_content.insert(cell.cell_id.clone(), content);
             }
         }
 
-        // 4. Verification: walk the sealed cell-DAG, gating each cell against the
-        //    protected oracle; reduce cell-verdicts to a unit-verdict.
-        let cell_results = walk_cells(&unit.cell_graph, oracle);
+        // 4. Verification: run the protected check against the artifacts now in the
+        //    workspace. This is the DECISIVE gate — a unit is accepted only if every
+        //    cell produced an artifact AND the oracle's command passes. Each
+        //    cell-result carries the produced artifact and the shared evidence.
+        let report = oracle.verify(&workspace);
+        let all_produced = produced.len() == unit.cell_graph.len();
+        let passed = report.passed && all_produced;
+        let mut cell_results: Vec<spark_interface::CellResult> = Vec::new();
+        for cell in &unit.cell_graph {
+            let produced_here = produced.contains_key(&cell.cell_id);
+            let mut r = spark_interface::CellResult::gated(cell.cell_id.clone(), passed && produced_here);
+            r.artifact = produced.get(&cell.cell_id).cloned();
+            r.evidence = report.evidence.clone();
+            cell_results.push(r);
+        }
         let verdict = reduce_verdict(&cell_results);
 
         // 5. Output Contract: emit the VerdictEvent to the durable, idempotent log.
@@ -523,6 +770,17 @@ impl Engine {
         log.append(&event)?; // idempotent by bundle_hash
         self.stream.push(event);
         self.verdict_view.emitted += 1;
+
+        // 5b. Delivery: on accept, emit a reviewable patch of everything the unit
+        //     changed in the workspace, BEFORE teardown destroys it. This is how
+        //     real code leaves the box — a diff the developer applies, not a
+        //     mutation of their tree.
+        if verdict == Verdict::Accepted {
+            if let Some(dir) = deliveries_dir {
+                let safe: String = unit.unit_ref.chars().map(|c| if c.is_alphanumeric() || c == '-' { c } else { '_' }).collect();
+                emit_patch(&workspace, &dir.join(format!("{safe}.patch")));
+            }
+        }
 
         // 6. Teardown: destroy the sandbox and revoke the lease — nothing standing survives.
         if let Some(t) = &token {
@@ -547,7 +805,7 @@ impl Engine {
 #[cfg(test)]
 mod production_tests {
     use super::*;
-    use spark_interface::{AcceptanceClass, Cell, Environment, ModelBinding};
+    use spark_interface::{Cell, Environment, ModelBinding};
     use spark_sandbox::{LocalBroker, LocalSandbox};
     use spark_serving::StubWorker;
     use std::collections::BTreeMap;
@@ -555,6 +813,17 @@ mod production_tests {
     struct PassOracle;
     impl Oracle for PassOracle {
         fn gate(&self, _c: &Cell) -> bool { true }
+    }
+
+    fn exec_cell(id: &str, b: ModelBinding, deps: &[&str]) -> Cell {
+        Cell {
+            cell_id: id.into(),
+            binding: b,
+            depends_on: deps.iter().map(|s| s.to_string()).collect(),
+            prompt: format!("write the {id} for the widget"),
+            schema: serde_json::json!({ "type": "string" }),
+            ..Default::default()
+        }
     }
 
     fn unit(r: &str) -> WorkUnit {
@@ -566,15 +835,13 @@ mod production_tests {
             spmc_bundle: serde_json::json!({}),
             model_binding: b.clone(),
             tier: "light".into(),
-            acceptance_class: AcceptanceClass::AutoCommitIfGreen,
-            ladder_position: 0,
             cell_graph: vec![
-                Cell { cell_id: "test".into(), binding: b.clone(), depends_on: vec![] },
-                Cell { cell_id: "impl".into(), binding: b, depends_on: vec!["test".into()] },
+                exec_cell("test", b.clone(), &[]),
+                exec_cell("impl", b, &["test"]),
             ],
             environment: Environment { network: vec![], workspace: "ws".into() },
             credential_grant: Some("grant-ref-1".into()),
-            tool_grants: vec![],
+            ..Default::default()
         }
     }
 
@@ -589,7 +856,7 @@ mod production_tests {
         e.throw_switch(Mode::Queue).unwrap();
         e.admit(unit("u1")).unwrap();
 
-        let out = e.drain_one_isolated(&sandbox, &LocalBroker, &StubWorker, &PassOracle, &mut log, "t1").unwrap();
+        let out = e.drain_one_isolated(&sandbox, &LocalBroker, &StubWorker, &PassOracle, &mut log, None, None, "t1").unwrap();
         assert_eq!(out, DrainOutcome::Accepted { unit_ref: "u1".into() });
         assert_eq!(log.len(), 1);                       // durably logged
         assert_eq!(e.utilization.in_flight, 0);         // sandbox torn down
@@ -601,13 +868,85 @@ mod production_tests {
     }
 
     #[test]
+    fn real_oracle_failing_verification_escalates_with_evidence() {
+        use spark_execution::CommandOracle;
+        let dir = std::env::temp_dir().join("spark-oracle-fail");
+        let _ = std::fs::remove_dir_all(&dir);
+        let sandbox = LocalSandbox { root: dir.join("sandboxes") };
+        let mut log = DurableLog::open(dir.join("v.jsonl")).unwrap();
+        let mut e = Engine::new();
+        e.throw_switch(Mode::Queue).unwrap();
+        e.admit(unit("u1")).unwrap();
+
+        // A protected oracle whose command fails: the produced artifacts don't pass.
+        let oracle = CommandOracle { command: "exit 1".into(), worker_writable: false };
+        let out = e.drain_one_isolated(&sandbox, &LocalBroker, &StubWorker, &oracle, &mut log, None, None, "t1").unwrap();
+        assert_eq!(out, DrainOutcome::Escalated { unit_ref: "u1".into(), to_ladder: 1 });
+        let ev = &e.stream[0];
+        assert_eq!(ev.verdict, Verdict::Escalate);
+        // Evidence records the failing command + exit code for audit.
+        let evidence = ev.cell_results[0].evidence.as_ref().expect("verification evidence present");
+        assert_eq!(evidence["exit"], serde_json::json!(1));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn real_oracle_passing_accepts_and_delivers_a_patch() {
+        use spark_execution::CommandOracle;
+        let dir = std::env::temp_dir().join("spark-oracle-pass");
+        let _ = std::fs::remove_dir_all(&dir);
+        let sandbox = LocalSandbox { root: dir.join("sandboxes") };
+        let mut log = DurableLog::open(dir.join("v.jsonl")).unwrap();
+        let deliveries = dir.join("deliveries");
+        let mut e = Engine::new();
+        e.throw_switch(Mode::Queue).unwrap();
+        e.admit(unit("u1")).unwrap();
+
+        let oracle = CommandOracle { command: "true".into(), worker_writable: false };
+        let out = e
+            .drain_one_isolated(&sandbox, &LocalBroker, &StubWorker, &oracle, &mut log, None, Some(deliveries.as_path()), "t1")
+            .unwrap();
+        assert_eq!(out, DrainOutcome::Accepted { unit_ref: "u1".into() });
+        // An accepted unit delivers a reviewable diff of what it wrote.
+        let patch = deliveries.join("u1.patch");
+        assert!(patch.exists(), "accepted unit should deliver a reviewable patch (requires git)");
+        let body = std::fs::read_to_string(&patch).unwrap();
+        assert!(body.contains("test.out") && body.contains("impl.out"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn inline_delivery_returns_content_hashed_artifacts_in_the_verdict() {
+        use spark_interface::{ArtifactBody, CellVerdict};
+        let dir = std::env::temp_dir().join("spark-inline-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        let sandbox = LocalSandbox { root: dir.join("sandboxes") };
+        let mut log = DurableLog::open(dir.join("verdicts.jsonl")).unwrap();
+
+        let mut e = Engine::new();
+        e.throw_switch(Mode::Queue).unwrap();
+        e.admit(unit("u1")).unwrap(); // default artifact_delivery == inline
+
+        e.drain_one_isolated(&sandbox, &LocalBroker, &StubWorker, &PassOracle, &mut log, None, None, "t1").unwrap();
+        let ev = &e.stream[0];
+        // Every cell accepted and carries an inline, content-hashed artifact.
+        for r in &ev.cell_results {
+            assert_eq!(r.verdict, CellVerdict::Accepted);
+            let a = r.artifact.as_ref().expect("inline delivery returns the artifact by value");
+            assert!(a.content_hash.starts_with("sha256:"));
+            assert!(matches!(a.delivery, ArtifactBody::Inline { .. }));
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn isolated_drain_outside_queue_is_refused() {
         let dir = std::env::temp_dir().join("spark-prod-test2");
         let sandbox = LocalSandbox { root: dir.join("sandboxes") };
         let mut log = DurableLog::open(dir.join("v.jsonl")).unwrap();
         let mut e = Engine::new();
         assert_eq!(
-            e.drain_one_isolated(&sandbox, &LocalBroker, &StubWorker, &PassOracle, &mut log, "t0").unwrap(),
+            e.drain_one_isolated(&sandbox, &LocalBroker, &StubWorker, &PassOracle, &mut log, None, None, "t0").unwrap(),
             DrainOutcome::NotQueueMode
         );
         let _ = std::fs::remove_dir_all(&dir);

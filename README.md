@@ -1,11 +1,13 @@
 # spark-cli
 
-A Rust implementation of the **Spark Execution Framework** — the execution pillar
-for running autonomous AI development work on a single NVIDIA DGX Spark box.
+A Rust implementation of **Kiln** (the execution framework, formerly the Spark
+Execution Framework) — the execution pillar for running autonomous AI development
+work, with the NVIDIA DGX Spark as its reference substrate.
 
-`spark-cli` is the developer switch and executor loop. It admits frozen
-**WorkUnits**, runs their sealed cell-DAGs through a verification gate, and emits
-**VerdictEvents** — *computed*-done, never *claimed*-done. The whole thing is
+`spark-cli` is the developer switch and executor loop. It **publishes a
+CapabilityManifest** (what can run here), admits frozen **WorkUnits**, runs their
+sealed cell-DAGs through a verification gate, and emits **VerdictEvents** —
+*computed*-done, never *claimed*-done. The whole thing is
 spec-driven: the domain model (the **What**), the architecture (the **How**), and
 the behavioural conformance suite all live under `.product/` and are kept in lockstep
 with the code.
@@ -36,11 +38,26 @@ mode; it lives elsewhere.)
   *same* SPMC model binding (model identity + served quantization + params).
   Quantization is load-bearing on the Spark; a heterogeneous unit is a decomposition
   defect and is never dispatched.
+- **CapabilityManifest** — the executor **publishes** its self-description out of
+  band (`spark manifest`): the `bindings` it can serve, the `delivery` modes/schemes/
+  integration-methods/forges, the `shape-languages` and `gate-kinds` it runs. A
+  producer matches a unit's derived *requirements* against it before dispatch —
+  empty distance ⇒ executable. It is the one seam artifact the executor authors.
+- **Admission** — a distinct gate *before* verification. A unit whose derived
+  requirements the box cannot cover **never runs** — it is answered `not-admitted`
+  with the concrete `missing-capabilities` distance, binding to `halt` (a higher
+  tier never adds a missing capability).
 - **Verification** — each cell is gated by a **protected oracle** the worker *cannot
   write* (ADR-076). A worker that can write its own oracle has no verifier. Verdicts
-  are `accepted` / `rejected` / `escalate`; consequences are `advance` / `halt` /
-  `retry` / `escalate`. Escalation is **unit-atomic** — the whole unit moves one
-  binding up the ladder, never a single cell.
+  are `accepted` / `rejected` / `escalate` / `not-admitted`; consequences are
+  `advance` / `halt` / `retry` / `escalate`. Escalation is **unit-atomic** — the
+  whole unit moves one binding up the ladder, never a single cell.
+- **Artifact delivery** — a unit declares where produced work lands: `inline`
+  (artifact bodies by value in the verdict) or `repository` (a declared git repo —
+  `file:///` local, remote for production — landed via `push-branch` or
+  `pull-request`; the verdict carries `delivery-result`: branch, commit, `pr-url`).
+  No credential material ever rides in the WorkUnit — repository/forge access is
+  exchanged executor-side from the `credential-grant` reference.
 - **VerdictEvent** — travels out fire-and-forget to a durable, append-only log.
 
 ---
@@ -48,7 +65,7 @@ mode; it lives elsewhere.)
 ## Architecture (11 crates)
 
 ```
-interface     WorkUnit / Cell / ModelBinding / VerdictEvent  (by-value contract, bundle_hash)
+interface     WorkUnit / Cell / ModelBinding / VerdictEvent / CapabilityManifest  (by-value contract, bundle_hash)
 switch        Box Control     — the developer switch (QUEUE ⇄ EXPLORER), distinct-mode guard
 queue         Work-Unit Queue — admission (homogeneity guard), priority, escalation ladder
 execution     Execution       — sealed cell-DAG walk, verdict reduction, + oracle-run gate
@@ -71,14 +88,15 @@ invariant id); every read-model is a **projector** (an event fold).
 
 ```bash
 cargo build --release        # produces target/release/spark and spark-conform
-cargo test                   # 79 tests across the workspace
+cargo test                   # 97 tests across the workspace
 ```
 
 ## CLI usage
 
 ```bash
+spark manifest                       # publish the CapabilityManifest (what can run here)
 spark mode set queue                 # throw the developer switch into QUEUE
-spark admit work-unit.json           # admit a frozen WorkUnit (homogeneity guard)
+spark admit work-unit.json           # admit a frozen WorkUnit (structural + capability pre-flight)
 spark run                            # drain the queue (in-memory demo path)
 spark serve                          # drain isolated: sandbox + creds + worker + oracle + durable log
 spark status                         # box mode + read-model views
@@ -88,8 +106,11 @@ spark mode set explorer && spark explore   # run a discovery session (EXPLORER o
 
 A WorkUnit is the **canonical contract JSON** — kebab-case throughout (`unit-ref`,
 `spmc-bundle`, `cell-graph`, `acceptance-class` ∈ `auto-commit-if-green` |
-`needs-verdict`). See [`docs/production-seams.md`](docs/production-seams.md) for a
-full example and the `spark serve` pipeline.
+`needs-verdict`, `artifact-delivery` ∈ `inline` | `repository`). See
+[`examples/workunit-csharp.json`](examples/workunit-csharp.json) (inline) and
+[`examples/workunit-csharp-repo.json`](examples/workunit-csharp-repo.json)
+(repository), plus [`docs/production-seams.md`](docs/production-seams.md) for the
+full `spark serve` pipeline.
 
 State persists to `.spark/state.json`; the durable verdict log to
 `.spark/verdicts.jsonl`; per-unit sandboxes under `.spark/sandboxes/`.

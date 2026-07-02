@@ -3,10 +3,11 @@
 # model_identifier, load-bearing on the Spark where quantization is what makes a
 # model fit 128GB) + endpoint. `tier` is only a routing handle over the binding.
 capabilities:
-# Light binding — QUEUE / day residency: small-medium coder, batched, many resident.
+# Light binding — QUEUE / day residency: Qwen3.6-35B-A3B MoE (3B active params),
+# served FP8. Batched, many units resident. This is the residency the box runs.
 - id: spark-coder-light
   endpoint: worker
-  model_identifier: qwen3-coder-30b-a3b-instruct-q4_K_M
+  model_identifier: qwen3.6-35b-a3b-fp8
   tier: 1
   status: active
 # Heavy binding — night / EXPLORER-adjacent residency: the large coder, serial.

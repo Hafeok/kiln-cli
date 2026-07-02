@@ -158,12 +158,16 @@ pub fn reduce_verdict(results: &[CellResult]) -> Verdict {
     }
 }
 
-/// The Transition Contract binding for a verdict.
+/// The Transition Contract binding for a verdict. `not-admitted` binds to `halt`
+/// — never `advance`: a higher tier cannot add a missing capability, so the
+/// consumer re-routes to a covering box or surfaces to a human, it does not
+/// advance the ladder against this executor.
 pub fn consequence_of(verdict: Verdict) -> Consequence {
     match verdict {
         Verdict::Accepted => Consequence::Advance,
         Verdict::Rejected => Consequence::Halt,
         Verdict::Escalate => Consequence::Escalate,
+        Verdict::NotAdmitted => Consequence::Halt,
     }
 }
 
@@ -229,7 +233,7 @@ mod tests {
     fn cell(id: &str, deps: &[&str]) -> Cell {
         Cell {
             cell_id: id.into(),
-            binding: ModelBinding { model: "coder".into(), quantization: "q4".into(), params: BTreeMap::new() },
+            binding: ModelBinding { model: "coder".into(), quantization: "q4".into(), params: BTreeMap::new(), ..Default::default() },
             depends_on: deps.iter().map(|s| s.to_string()).collect(),
             prompt: format!("do {id}"),
             schema: serde_json::json!({ "type": "string" }),
@@ -364,7 +368,7 @@ mod oracle_tests {
     fn cell() -> Cell {
         Cell {
             cell_id: "c".into(),
-            binding: ModelBinding { model: "m".into(), quantization: "q".into(), params: BTreeMap::new() },
+            binding: ModelBinding { model: "m".into(), quantization: "q".into(), params: BTreeMap::new(), ..Default::default() },
             prompt: "do c".into(),
             schema: serde_json::json!({ "type": "string" }),
             ..Default::default()

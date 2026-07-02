@@ -143,8 +143,10 @@ mod tests {
             parent_deliverable: "d".into(),
             bundle_hash: hash.into(),
             verdict: Verdict::Accepted,
-            tier_ran: "light".into(),
+            missing_capabilities: None,
+            tier_ran: Some("light".into()),
             cell_results: vec![],
+            delivery_result: None,
             next_consequence: Consequence::Advance,
         }
     }

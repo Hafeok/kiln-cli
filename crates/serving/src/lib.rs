@@ -230,7 +230,7 @@ mod tests {
     }
     #[test]
     fn scheduler_groups_by_binding() {
-        let b = |q: &str| ModelBinding { model: "coder".into(), quantization: q.into(), params: BTreeMap::new() };
+        let b = |q: &str| ModelBinding { model: "coder".into(), quantization: q.into(), params: BTreeMap::new(), ..Default::default() };
         let cells = vec![
             Cell { cell_id: "a".into(), binding: b("q4"), ..Default::default() },
             Cell { cell_id: "b".into(), binding: b("q4"), ..Default::default() },
@@ -241,7 +241,7 @@ mod tests {
     }
     #[test]
     fn stub_worker_is_deterministic() {
-        let b = ModelBinding { model: "m".into(), quantization: "q".into(), params: BTreeMap::new() };
+        let b = ModelBinding { model: "m".into(), quantization: "q".into(), params: BTreeMap::new(), ..Default::default() };
         assert_eq!(StubWorker.invoke(&b, "do x").unwrap(), StubWorker.invoke(&b, "do x").unwrap());
     }
 }
@@ -404,7 +404,7 @@ mod http_tests {
         });
 
         let worker = OpenAiWorker::for_endpoint(format!("http://127.0.0.1:{port}"), "test-model".into(), None);
-        let binding = ModelBinding { model: "coder".into(), quantization: "q4".into(), params: BTreeMap::new() };
+        let binding = ModelBinding { model: "coder".into(), quantization: "q4".into(), params: BTreeMap::new(), ..Default::default() };
         let out = worker.invoke(&binding, "write add()").unwrap();
         assert_eq!(out, "fn add(a:i32,b:i32)->i32{a+b}");
         handle.join().unwrap();

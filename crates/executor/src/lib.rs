@@ -12,7 +12,9 @@ use spark_execution::{consequence_of, reduce_verdict, walk_cells, Oracle, RunCom
 use spark_host::{probe_ready, HostCommand, HostHandle, HostSpec, HostState, ResidencyHost, ServingHostView};
 use spark_exploration::{SessionCommand, SessionState};
 use spark_interface::{
-    Artifact, ArtifactBody, ArtifactDelivery, Cell, Verdict, VerdictEvent, WorkUnit, content_hash,
+    Artifact, ArtifactBody, ArtifactDelivery, Capabilities, CapabilityManifest, Cell,
+    DeliveryCapability, DeliveryResult, Integration, IntegrationMethod, ManifestBinding, Operational,
+    Verdict, VerdictEvent, WorkUnit, content_hash,
 };
 use spark_queue::{decide_admission, HeterogeneityRateView, PrioritySetView, UnitCommand, UnitEvent, UnitState};
 use spark_switch::{BoxCommand, BoxState, BoxStatusView, Mode};
@@ -20,6 +22,75 @@ use spark_switch::{BoxCommand, BoxState, BoxStatusView, Mode};
 /// The top ladder rung: a unit may escalate light(0) -> heavy(1); a rejecting
 /// verdict at the heavy binding halts the unit (the ladder is exhausted).
 pub const MAX_LADDER: u32 = 1;
+
+/// This executor's stable identity, published in its CapabilityManifest.
+pub const EXECUTOR_ID: &str = "dgx-spark-gb10";
+
+/// The reference-substrate CapabilityManifest: what this box can run, published
+/// out of band so a producer can match a unit's requirements before dispatch. On
+/// the Spark the `bindings` are exactly the resident/validated bindings (see
+/// `bindings/qwen3.6-35b-gb10.yaml`): the FP8 MoE day binding served by vLLM.
+/// `operational` is filled in at publish time (advisory only — never matched).
+pub fn default_manifest() -> CapabilityManifest {
+    CapabilityManifest {
+        executor_id: EXECUTOR_ID.into(),
+        emitted_at: String::new(),
+        capabilities: Capabilities {
+            bindings: vec![ManifestBinding {
+                provider: "local-vllm".into(),
+                model_id: "qwen3.6-35b".into(),
+                revision: None,
+                quantization: "FP8".into(),
+            }],
+            delivery: DeliveryCapability {
+                modes: vec!["inline".into(), "repository".into()],
+                url_schemes: vec!["file".into(), "https".into(), "ssh".into()],
+                integration_methods: vec!["push-branch".into(), "pull-request".into()],
+                forges: vec!["github.com".into()],
+            },
+            // Shape languages this executor can validate output against. "prose" is
+            // the loosest (any text); the structured ones gate machine-checkable output.
+            shape_languages: vec!["prose".into(), "JSON".into(), "JSON Schema".into(), "SHACL".into()],
+            // Gate kinds it can run against a protected oracle (open vocabulary).
+            gate_kinds: vec!["command".into()],
+        },
+        operational: None,
+    }
+}
+
+/// A permissive manifest for tests: covers the synthetic `coder` bindings and
+/// both delivery modes over `file://`, so the drain tests admit their units. The
+/// not-admitted path is exercised separately against the reference manifest.
+#[cfg(test)]
+fn covering_manifest() -> CapabilityManifest {
+    CapabilityManifest {
+        executor_id: "test-box".into(),
+        emitted_at: "t0".into(),
+        capabilities: Capabilities {
+            bindings: vec![
+                ManifestBinding { provider: String::new(), model_id: "coder".into(), revision: None, quantization: "q4".into() },
+                ManifestBinding { provider: String::new(), model_id: "coder".into(), revision: None, quantization: "q8".into() },
+            ],
+            delivery: DeliveryCapability {
+                modes: vec!["inline".into(), "repository".into()],
+                url_schemes: vec!["file".into()],
+                integration_methods: vec!["push-branch".into(), "pull-request".into()],
+                forges: vec![],
+            },
+            shape_languages: vec![],
+            gate_kinds: vec![],
+        },
+        operational: None,
+    }
+}
+
+/// A QUEUE-mode engine whose manifest covers the synthetic test bindings.
+#[cfg(test)]
+fn test_engine() -> Engine {
+    let mut e = Engine::new();
+    e.manifest = covering_manifest();
+    e
+}
 
 /// `utilization-view` projector: is the box earning its keep?
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -42,12 +113,15 @@ pub enum DrainOutcome {
     Accepted { unit_ref: String },
     Escalated { unit_ref: String, to_ladder: u32 },
     Halted { unit_ref: String },
+    /// The unit NEVER RAN: its derived requirements exceed this box's published
+    /// capabilities. Answered with a `not-admitted` verdict carrying the distance.
+    NotAdmitted { unit_ref: String, missing: Vec<String> },
     Idle,
     NotQueueMode,
 }
 
 /// The full executor state — persistable, so the CLI can drive it across calls.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Engine {
     pub mode: Mode,
     /// The flat, edgeless priority set (front = highest priority).
@@ -65,6 +139,12 @@ pub struct Engine {
     pub host_handle: Option<HostHandle>,
     #[serde(default)]
     pub serving_host_view: ServingHostView,
+    /// This box's published self-description — what can run here. Admission at the
+    /// boundary matches a unit's derived requirements against it (authoritatively);
+    /// producers match against the published copy before dispatch. Defaulted so
+    /// older state.json files still load.
+    #[serde(default = "default_manifest")]
+    pub manifest: CapabilityManifest,
     seq: u64,
 }
 
@@ -72,6 +152,28 @@ pub struct Engine {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct VerdictStreamCount {
     pub emitted: i64,
+}
+
+impl Default for Engine {
+    /// A fresh box: OFF, empty queue, and the reference-substrate manifest as its
+    /// published capabilities (so a bare `Engine::default()` admits the units the
+    /// resident bindings can serve).
+    fn default() -> Self {
+        Engine {
+            mode: Mode::default(),
+            priority_set: Vec::new(),
+            stream: Vec::new(),
+            priority_view: PrioritySetView::default(),
+            heterogeneity_view: HeterogeneityRateView::default(),
+            verdict_view: VerdictStreamCount::default(),
+            utilization: UtilizationView::default(),
+            host: HostState::default(),
+            host_handle: None,
+            serving_host_view: ServingHostView::default(),
+            manifest: default_manifest(),
+            seq: 0,
+        }
+    }
 }
 
 // PrioritySetView / HeterogeneityRateView need serde to persist; provide it here
@@ -108,6 +210,46 @@ fn wait_ready(host: &str, port: u16, timeout: Duration) -> bool {
 impl Engine {
     pub fn new() -> Self {
         Engine::default()
+    }
+
+    /// Publish this box's CapabilityManifest, stamped `now` and carrying the
+    /// current advisory `operational` hints (box mode, queue depth). The normative
+    /// `capabilities` are the stored self-description; `operational` is snapshot
+    /// live and is NEVER used for matching.
+    pub fn publish_manifest(&self, now: &str) -> CapabilityManifest {
+        let mut m = self.manifest.clone();
+        m.emitted_at = now.to_string();
+        m.operational = Some(Operational {
+            mode: Some(format!("{:?}", self.mode)),
+            queue_depth: Some(self.priority_set.len() as i64),
+            capacity: None,
+        });
+        m
+    }
+
+    /// Emit a `not-admitted` VerdictEvent for a unit the box cannot cover: nothing
+    /// ran, so `tier-ran` and `cell-results` are absent and `missing-capabilities`
+    /// carries the distance. Binds to `halt` (the consumer re-routes or escalates
+    /// to a human — a higher tier never adds a missing capability). Returns the
+    /// outcome; the caller has already removed the unit from the queue.
+    fn emit_not_admitted(&mut self, unit: &WorkUnit, missing: Vec<String>, now: &str) -> DrainOutcome {
+        self.seq += 1;
+        let event = VerdictEvent {
+            event_id: format!("ve-{}-{}", unit.unit_ref, self.seq),
+            emitted_at: now.to_string(),
+            unit_ref: unit.unit_ref.clone(),
+            parent_deliverable: unit.parent_deliverable.clone(),
+            bundle_hash: unit.bundle_hash.clone(),
+            verdict: Verdict::NotAdmitted,
+            missing_capabilities: Some(missing.clone()),
+            tier_ran: None,
+            cell_results: Vec::new(),
+            delivery_result: None,
+            next_consequence: consequence_of(Verdict::NotAdmitted),
+        };
+        self.stream.push(event);
+        self.verdict_view.emitted += 1;
+        DrainOutcome::NotAdmitted { unit_ref: unit.unit_ref.clone(), missing }
     }
 
     /// Throw the developer switch (top-level control). Returns the new mode, or
@@ -222,6 +364,14 @@ impl Engine {
         }
         let unit = self.priority_set.remove(0);
         self.priority_view.on_admitted();
+
+        // Admission (authoritative, before verification): a unit whose derived
+        // requirements this box cannot cover never runs — it is answered with a
+        // `not-admitted` verdict naming the concrete distance.
+        let missing = self.manifest.missing_for(&unit);
+        if !missing.is_empty() {
+            return self.emit_not_admitted(&unit, missing, now);
+        }
         self.utilization.in_flight += 1;
 
         // ExecutionRun: admit -> walk -> compute -> emit (each decider-gated).
@@ -246,8 +396,10 @@ impl Engine {
             parent_deliverable: unit.parent_deliverable.clone(),
             bundle_hash: unit.bundle_hash.clone(),
             verdict,
-            tier_ran: tier_ran.to_string(),
+            missing_capabilities: None,
+            tier_ran: Some(tier_ran.to_string()),
             cell_results,
+            delivery_result: None,
             next_consequence: consequence_of(verdict),
         };
         self.stream.push(event);
@@ -256,7 +408,7 @@ impl Engine {
 
         match verdict {
             Verdict::Accepted => DrainOutcome::Accepted { unit_ref: unit.unit_ref },
-            Verdict::Rejected | Verdict::Escalate => self.escalate(unit),
+            Verdict::Rejected | Verdict::Escalate | Verdict::NotAdmitted => self.escalate(unit),
         }
     }
 
@@ -314,7 +466,7 @@ mod tests {
     }
 
     fn binding(model: &str, q: &str) -> ModelBinding {
-        ModelBinding { model: model.into(), quantization: q.into(), params: BTreeMap::new() }
+        ModelBinding { model: model.into(), quantization: q.into(), params: BTreeMap::new(), ..Default::default() }
     }
 
     fn exec_cell(id: &str, b: ModelBinding, deps: &[&str]) -> Cell {
@@ -361,7 +513,7 @@ mod tests {
 
     #[test]
     fn admit_then_drain_accepts_and_emits() {
-        let mut e = Engine::new();
+        let mut e = test_engine();
         e.throw_switch(Mode::Queue).unwrap();
         e.admit(one_cell_unit("u1")).unwrap();
         assert_eq!(e.priority_view.queued, 1);
@@ -370,6 +522,30 @@ mod tests {
         assert_eq!(e.stream.len(), 1);
         assert_eq!(e.stream[0].verdict, Verdict::Accepted);
         assert_eq!(e.priority_view.queued, 0);
+    }
+
+    #[test]
+    fn a_unit_whose_binding_the_box_cannot_serve_is_not_admitted() {
+        // A fresh engine's manifest is the reference substrate (serves only the
+        // resident FP8 binding); a `coder@q4` unit's requirement is uncovered.
+        let mut e = Engine::new();
+        e.throw_switch(Mode::Queue).unwrap();
+        e.admit(one_cell_unit("u1")).unwrap(); // structurally valid: enqueues
+        let out = e.drain_one(&AllPass, "t1");
+        match out {
+            DrainOutcome::NotAdmitted { unit_ref, missing } => {
+                assert_eq!(unit_ref, "u1");
+                assert!(missing.contains(&"binding:/coder@q4".to_string()), "distance: {missing:?}");
+            }
+            other => panic!("expected NotAdmitted, got {other:?}"),
+        }
+        // A not-admitted verdict was emitted: nothing ran (no tier, no cells).
+        let ev = e.stream.last().unwrap();
+        assert_eq!(ev.verdict, Verdict::NotAdmitted);
+        assert_eq!(ev.tier_ran, None);
+        assert!(ev.cell_results.is_empty());
+        assert_eq!(ev.next_consequence, spark_interface::Consequence::Halt);
+        assert_eq!(e.utilization.in_flight, 0); // never entered flight
     }
 
     #[test]
@@ -387,7 +563,7 @@ mod tests {
 
     #[test]
     fn a_failing_unit_escalates_then_halts_when_the_ladder_is_exhausted() {
-        let mut e = Engine::new();
+        let mut e = test_engine();
         e.throw_switch(Mode::Queue).unwrap();
         e.admit(one_cell_unit("u1")).unwrap();
         // First drain at light(0): fails -> escalate to heavy(1), re-enqueued.
@@ -397,7 +573,7 @@ mod tests {
         assert_eq!(e.drain_one(&AllFail, "t2"), DrainOutcome::Halted { unit_ref: "u1".into() });
         assert!(e.priority_set.is_empty());
         assert_eq!(e.stream.len(), 2);
-        assert_eq!(e.stream[1].tier_ran, "heavy");
+        assert_eq!(e.stream[1].tier_ran.as_deref(), Some("heavy"));
     }
 
     #[test]
@@ -634,6 +810,114 @@ fn emit_patch(workspace: &std::path::Path, out_path: &std::path::Path) -> Option
     Some(out_path.display().to_string())
 }
 
+/// Seed a `repository`-delivery working tree by cloning the DECLARED repository
+/// into `workspace` and checking out `base_ref`. `file:///…` covers local
+/// development; a remote URL covers production (its host is a declared network
+/// destination, and push/PR credentials are exchanged executor-side at the
+/// boundary — never read from the frozen unit). Concurrency isolation against one
+/// repository is the sandbox's job (a per-run clone here), invisible to the seam.
+fn clone_repository(url: &str, base_ref: &str, workspace: &std::path::Path) -> std::io::Result<()> {
+    // `git clone` refuses a non-empty target; the sandbox provisioned a fresh dir.
+    let _ = std::fs::remove_dir_all(workspace);
+    let status = std::process::Command::new("git")
+        .args(["clone", "--quiet"])
+        .arg(url)
+        .arg(workspace)
+        .status()?;
+    if !status.success() {
+        return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("git clone {url} failed")));
+    }
+    if !base_ref.trim().is_empty() {
+        let _ = std::process::Command::new("git")
+            .arg("-C").arg(workspace)
+            .args(["checkout", "--quiet", base_ref])
+            .status();
+    }
+    Ok(())
+}
+
+/// Land the produced tree in the declared repository per its integration method,
+/// returning the `delivery-result` (branch, commit, `pr-url`). The commit SHA IS
+/// the content hash over the produced tree (git canonicalizes it), so provenance
+/// is preserved with no artifact payload crossing the seam. Push is best-effort:
+/// a `file:///` local repo accepts the branch with no credential; a remote push
+/// that fails still yields the local branch + commit as the provenance anchor.
+/// For `pull-request` delivery against a known forge, a compare URL is derived.
+fn deliver_to_repository(
+    workspace: &std::path::Path,
+    url: &str,
+    integration: &Integration,
+    unit_ref: &str,
+) -> Option<DeliveryResult> {
+    if !workspace.join(".git").is_dir() {
+        return None;
+    }
+    let safe: String = unit_ref.chars().map(|c| if c.is_alphanumeric() || c == '-' || c == '/' { c } else { '_' }).collect();
+    let branch = if integration.branch_name.trim().is_empty() {
+        format!("spark/{safe}")
+    } else {
+        integration.branch_name.clone()
+    };
+    let git = |args: &[&str]| {
+        std::process::Command::new("git").arg("-C").arg(workspace).args(args).status()
+    };
+    // A branch for this run, then stage the unit's source changes (excluding build
+    // output the oracle produced) and commit them.
+    let _ = git(&["checkout", "-q", "-B", &branch]);
+    let excludes = [":!target", ":!node_modules", ":!bin", ":!obj", ":!.spark", ":!.git"];
+    {
+        let mut add = std::process::Command::new("git");
+        add.arg("-C").arg(workspace).args(["add", "-A", "--", "."]).args(excludes);
+        let _ = add.status();
+    }
+    let commit_ok = std::process::Command::new("git")
+        .arg("-C").arg(workspace)
+        .args(["-c", "user.email=spark@local", "-c", "user.name=spark", "commit", "-q", "-m"])
+        .arg(format!("spark: {unit_ref}"))
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if !commit_ok {
+        // Nothing to commit (no changes) — no ref to report back.
+        return None;
+    }
+    let commit = std::process::Command::new("git")
+        .arg("-C").arg(workspace)
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())?;
+
+    // Push the branch to the declared repository (the only permitted destination).
+    // `origin` is the clone's remote; push HEAD to the named branch.
+    let pushed = std::process::Command::new("git")
+        .arg("-C").arg(workspace)
+        .args(["push", "--quiet", "origin", &format!("HEAD:refs/heads/{branch}")])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+
+    // For pull-request delivery against a known forge, derive the compare URL the
+    // producer reconciles against. (Opening the PR is a forge API call under the
+    // executor-side credential; the derived URL is the ref the producer expects.)
+    let pr_url = if matches!(integration.method, IntegrationMethod::PullRequest) && pushed {
+        let (scheme, host) = spark_interface::url_scheme_and_host(url);
+        match (scheme.as_str(), host) {
+            ("https", Some(h)) if h == "github.com" => {
+                let repo = url.trim_end_matches(".git").trim_start_matches("https://github.com/");
+                let base = if integration.target_ref.trim().is_empty() { "main" } else { integration.target_ref.as_str() };
+                Some(format!("https://github.com/{repo}/compare/{base}...{branch}?expand=1"))
+            }
+            _ => None,
+        }
+    } else {
+        None
+    };
+
+    Some(DeliveryResult { branch, commit, pr_url })
+}
+
 impl Engine {
     /// Drain one unit through the full production path: provision a per-unit
     /// sandbox (optionally SEEDED from a real product checkout), broker
@@ -664,22 +948,45 @@ impl Engine {
         }
         let unit = self.priority_set.remove(0);
         self.priority_view.on_admitted();
+
+        // 0. Admission (authoritative, before verification): a unit whose derived
+        //    requirements this box cannot cover NEVER RUNS — no sandbox, no worker
+        //    call — it is answered with a `not-admitted` verdict naming the distance.
+        let missing = self.manifest.missing_for(&unit);
+        if !missing.is_empty() {
+            let outcome = self.emit_not_admitted(&unit, missing, now);
+            if let DrainOutcome::NotAdmitted { .. } = &outcome {
+                log.append(self.stream.last().expect("not-admitted event just pushed"))?;
+            }
+            return Ok(outcome);
+        }
         self.utilization.in_flight += 1;
 
+        // The declared repository, when this unit lands in `repository` mode.
+        let repository = match &unit.artifact_delivery {
+            ArtifactDelivery::Repository { url, base_ref, integration } => Some((url.clone(), base_ref.clone(), integration.clone())),
+            ArtifactDelivery::Inline => None,
+        };
+
         // 1. Environment: provision the per-unit sandbox (network declared by
-        //    construction) and, when a product checkout is named, seed it so the
-        //    oracle can build/test the artifacts in a real project tree.
+        //    construction). The writable working tree is a per-run CLONE of the
+        //    declared repository under `repository` delivery (isolation against one
+        //    repo is the sandbox's job, invisible to the seam), else a scratch
+        //    workspace optionally SEEDED from a product checkout so the oracle can
+        //    build/test the artifacts in a real project tree.
         let mut sbx = SandboxState::default();
         for e in sbx.decide(&SandboxCommand::Provision { network_declared: true }).expect("declared network provisions") {
             sbx.evolve(&e);
         }
         let workspace = sandbox.provision(&unit.unit_ref)?;
-        if let Some(seed) = seed {
+        if let Some((url, base_ref, _)) = &repository {
+            clone_repository(url, base_ref, &workspace)?;
+        } else if let Some(seed) = seed {
             seed_workspace(seed, &workspace)?;
         }
-        if deliveries_dir.is_some() {
+        if deliveries_dir.is_some() && repository.is_none() {
             // A git baseline lets us emit a reviewable diff regardless of how the
-            // workspace was seeded (cloned repo keeps its own history).
+            // workspace was seeded (a repository clone already has history).
             ensure_git_baseline(&workspace);
         }
 
@@ -706,6 +1013,10 @@ impl Engine {
                 batch.evolve(&e);
             }
         }
+        // Inline delivery returns each artifact by value; `repository` delivery
+        // carries NO per-cell payloads (the run's landing is reported once, in
+        // `delivery-result`). Content is always written into the workspace and
+        // tracked so a dependent cell can see its prerequisites' output.
         let mut produced: std::collections::BTreeMap<String, Artifact> = std::collections::BTreeMap::new();
         let mut produced_content: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
         for i in topo_order(&unit.cell_graph) {
@@ -722,36 +1033,48 @@ impl Engine {
                     }
                 }
                 let _ = std::fs::write(workspace.join(&rel_path), &content);
-                let delivery = match &unit.artifact_delivery {
-                    ArtifactDelivery::Inline => ArtifactBody::Inline { content: content.clone() },
-                    ArtifactDelivery::Workspace { reference, .. } => {
-                        ArtifactBody::Workspace { path: rel_path.clone(), reference: reference.clone() }
-                    }
-                };
-                produced.insert(
-                    cell.cell_id.clone(),
-                    Artifact { artifact_id, content_hash: content_hash(content.as_bytes()), delivery },
-                );
+                // Only `inline` delivery emits an artifact body on the verdict.
+                if repository.is_none() {
+                    produced.insert(
+                        cell.cell_id.clone(),
+                        Artifact {
+                            artifact_id,
+                            content_hash: content_hash(content.as_bytes()),
+                            delivery: ArtifactBody::Inline { content: content.clone() },
+                        },
+                    );
+                }
                 produced_content.insert(cell.cell_id.clone(), content);
             }
         }
 
         // 4. Verification: run the protected check against the artifacts now in the
         //    workspace. This is the DECISIVE gate — a unit is accepted only if every
-        //    cell produced an artifact AND the oracle's command passes. Each
-        //    cell-result carries the produced artifact and the shared evidence.
+        //    cell produced content AND the oracle's command passes. Each cell-result
+        //    carries the produced artifact (inline mode) and the shared evidence.
         let report = oracle.verify(&workspace);
-        let all_produced = produced.len() == unit.cell_graph.len();
+        let all_produced = produced_content.len() == unit.cell_graph.len();
         let passed = report.passed && all_produced;
         let mut cell_results: Vec<spark_interface::CellResult> = Vec::new();
         for cell in &unit.cell_graph {
-            let produced_here = produced.contains_key(&cell.cell_id);
+            let produced_here = produced_content.contains_key(&cell.cell_id);
             let mut r = spark_interface::CellResult::gated(cell.cell_id.clone(), passed && produced_here);
             r.artifact = produced.get(&cell.cell_id).cloned();
             r.evidence = report.evidence.clone();
             cell_results.push(r);
         }
         let verdict = reduce_verdict(&cell_results);
+
+        // 4b. Delivery (repository mode): on accept, land the produced tree in the
+        //     declared repository per its integration method and capture the
+        //     `delivery-result` (branch, commit, `pr-url`) BEFORE teardown. The
+        //     commit SHA is the provenance anchor; no artifact payload crosses.
+        let delivery_result = match (&repository, verdict) {
+            (Some((url, _, integration)), Verdict::Accepted) => {
+                deliver_to_repository(&workspace, url, integration, &unit.unit_ref)
+            }
+            _ => None,
+        };
 
         // 5. Output Contract: emit the VerdictEvent to the durable, idempotent log.
         self.seq += 1;
@@ -763,19 +1086,22 @@ impl Engine {
             parent_deliverable: unit.parent_deliverable.clone(),
             bundle_hash: unit.bundle_hash.clone(),
             verdict,
-            tier_ran: tier_ran.to_string(),
+            missing_capabilities: None,
+            tier_ran: Some(tier_ran.to_string()),
             cell_results,
+            delivery_result,
             next_consequence: consequence_of(verdict),
         };
         log.append(&event)?; // idempotent by bundle_hash
         self.stream.push(event);
         self.verdict_view.emitted += 1;
 
-        // 5b. Delivery: on accept, emit a reviewable patch of everything the unit
-        //     changed in the workspace, BEFORE teardown destroys it. This is how
-        //     real code leaves the box — a diff the developer applies, not a
-        //     mutation of their tree.
-        if verdict == Verdict::Accepted {
+        // 5b. Delivery (inline mode): on accept, emit a reviewable patch of
+        //     everything the unit changed in the workspace, BEFORE teardown
+        //     destroys it. This is how code leaves the box under `inline`
+        //     delivery — a diff the developer applies. Under `repository`
+        //     delivery the run already landed as a pushed branch (delivery-result).
+        if verdict == Verdict::Accepted && repository.is_none() {
             if let Some(dir) = deliveries_dir {
                 let safe: String = unit.unit_ref.chars().map(|c| if c.is_alphanumeric() || c == '-' { c } else { '_' }).collect();
                 emit_patch(&workspace, &dir.join(format!("{safe}.patch")));
@@ -797,7 +1123,7 @@ impl Engine {
 
         Ok(match verdict {
             Verdict::Accepted => DrainOutcome::Accepted { unit_ref: unit.unit_ref },
-            Verdict::Rejected | Verdict::Escalate => self.escalate(unit),
+            Verdict::Rejected | Verdict::Escalate | Verdict::NotAdmitted => self.escalate(unit),
         })
     }
 }
@@ -827,7 +1153,7 @@ mod production_tests {
     }
 
     fn unit(r: &str) -> WorkUnit {
-        let b = ModelBinding { model: "coder".into(), quantization: "q4".into(), params: BTreeMap::new() };
+        let b = ModelBinding { model: "coder".into(), quantization: "q4".into(), params: BTreeMap::new(), ..Default::default() };
         WorkUnit {
             unit_ref: r.into(),
             parent_deliverable: "d".into(),
@@ -852,7 +1178,7 @@ mod production_tests {
         let sandbox = LocalSandbox { root: dir.join("sandboxes") };
         let mut log = DurableLog::open(dir.join("verdicts.jsonl")).unwrap();
 
-        let mut e = Engine::new();
+        let mut e = test_engine();
         e.throw_switch(Mode::Queue).unwrap();
         e.admit(unit("u1")).unwrap();
 
@@ -874,7 +1200,7 @@ mod production_tests {
         let _ = std::fs::remove_dir_all(&dir);
         let sandbox = LocalSandbox { root: dir.join("sandboxes") };
         let mut log = DurableLog::open(dir.join("v.jsonl")).unwrap();
-        let mut e = Engine::new();
+        let mut e = test_engine();
         e.throw_switch(Mode::Queue).unwrap();
         e.admit(unit("u1")).unwrap();
 
@@ -898,7 +1224,7 @@ mod production_tests {
         let sandbox = LocalSandbox { root: dir.join("sandboxes") };
         let mut log = DurableLog::open(dir.join("v.jsonl")).unwrap();
         let deliveries = dir.join("deliveries");
-        let mut e = Engine::new();
+        let mut e = test_engine();
         e.throw_switch(Mode::Queue).unwrap();
         e.admit(unit("u1")).unwrap();
 
@@ -923,12 +1249,13 @@ mod production_tests {
         let sandbox = LocalSandbox { root: dir.join("sandboxes") };
         let mut log = DurableLog::open(dir.join("verdicts.jsonl")).unwrap();
 
-        let mut e = Engine::new();
+        let mut e = test_engine();
         e.throw_switch(Mode::Queue).unwrap();
         e.admit(unit("u1")).unwrap(); // default artifact_delivery == inline
 
         e.drain_one_isolated(&sandbox, &LocalBroker, &StubWorker, &PassOracle, &mut log, None, None, "t1").unwrap();
         let ev = &e.stream[0];
+        assert!(ev.delivery_result.is_none(), "inline delivery carries no delivery-result");
         // Every cell accepted and carries an inline, content-hashed artifact.
         for r in &ev.cell_results {
             assert_eq!(r.verdict, CellVerdict::Accepted);
@@ -936,6 +1263,72 @@ mod production_tests {
             assert!(a.content_hash.starts_with("sha256:"));
             assert!(matches!(a.delivery, ArtifactBody::Inline { .. }));
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A repository-delivery unit that lands its run in a declared `file:///` git
+    /// repo: the executor clones it, the worker writes, the oracle passes, and the
+    /// run is pushed as a branch — the verdict carries `delivery-result` (branch +
+    /// commit) and NO inline artifact bodies.
+    #[test]
+    fn repository_delivery_pushes_a_branch_and_reports_refs() {
+        use spark_interface::{ArtifactDelivery, Integration, IntegrationMethod};
+        // A `git` binary is required; skip cleanly if absent (this is a unit test).
+        let git_ok = std::process::Command::new("git").arg("--version").output().map(|o| o.status.success()).unwrap_or(false);
+        if !git_ok {
+            eprintln!("skipping: git not on PATH");
+            return;
+        }
+        let dir = std::env::temp_dir().join("spark-repo-delivery");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // Stand up a bare-ish origin repo with an initial commit on `main`.
+        let origin = dir.join("origin");
+        std::fs::create_dir_all(&origin).unwrap();
+        let git = |args: &[&str], cwd: &std::path::Path| {
+            std::process::Command::new("git").arg("-C").arg(cwd).args(args).status().unwrap();
+        };
+        git(&["init", "-q", "-b", "main"], &origin);
+        std::fs::write(origin.join("README.md"), "seed\n").unwrap();
+        git(&["add", "-A"], &origin);
+        git(&["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "init"], &origin);
+        // Allow pushes into this non-bare repo's checked-out branch.
+        git(&["config", "receive.denyCurrentBranch", "updateInstead"], &origin);
+
+        let sandbox = LocalSandbox { root: dir.join("sandboxes") };
+        let mut log = DurableLog::open(dir.join("v.jsonl")).unwrap();
+        let mut e = test_engine();
+        e.throw_switch(Mode::Queue).unwrap();
+
+        let mut u = unit("u-repo");
+        u.artifact_delivery = ArtifactDelivery::Repository {
+            url: format!("file://{}", origin.display()),
+            base_ref: "main".into(),
+            integration: Integration {
+                method: IntegrationMethod::PushBranch,
+                target_ref: "main".into(),
+                branch_name: "spark/u-repo".into(),
+            },
+        };
+        e.admit(u).unwrap();
+
+        let oracle = PassOracle;
+        let out = e.drain_one_isolated(&sandbox, &LocalBroker, &StubWorker, &oracle, &mut log, None, None, "t1").unwrap();
+        assert_eq!(out, DrainOutcome::Accepted { unit_ref: "u-repo".into() });
+
+        let ev = e.stream.last().unwrap();
+        let dr = ev.delivery_result.as_ref().expect("repository delivery reports refs");
+        assert_eq!(dr.branch, "spark/u-repo");
+        assert_eq!(dr.commit.len(), 40, "a full commit SHA");
+        assert!(dr.pr_url.is_none(), "push-branch delivery opens no PR");
+        // Repository mode carries no per-cell artifact bodies.
+        for r in &ev.cell_results {
+            assert!(r.artifact.is_none(), "repository delivery carries refs, not payloads");
+        }
+        // The branch actually landed in the origin.
+        let branches = std::process::Command::new("git").arg("-C").arg(&origin).args(["branch", "--list", "spark/u-repo"]).output().unwrap();
+        assert!(String::from_utf8_lossy(&branches.stdout).contains("spark/u-repo"), "branch pushed to origin");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

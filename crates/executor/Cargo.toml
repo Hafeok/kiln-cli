@@ -16,3 +16,11 @@ spark-serving = { workspace = true }
 spark-sandbox = { workspace = true }
 spark-stream = { workspace = true }
 spark-host = { workspace = true }
+
+[dev-dependencies]
+spark-interface = { workspace = true }
+spark-switch = { workspace = true }
+spark-execution = { workspace = true }
+spark-serving = { workspace = true }
+spark-sandbox = { workspace = true }
+spark-stream = { workspace = true }

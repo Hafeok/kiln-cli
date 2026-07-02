@@ -205,6 +205,60 @@ them as a documented extension alongside these fields, and otherwise floors them
 
 ---
 
+## Publishing capabilities & admission (contracts 0.2.0)
+
+The executor **publishes a CapabilityManifest** out of band — the one seam artifact
+it *authors* — so a producer can compute a unit's executability before dispatch:
+
+```bash
+spark manifest    # → the canonical kebab-case CapabilityManifest JSON
+```
+
+It declares (normative for matching) the `bindings` the box serves, the `delivery`
+modes/`url-schemes`/`integration-methods`/`forges`, the `shape-languages` and
+`gate-kinds` it runs; `operational` (mode, queue-depth) is **advisory only** and is
+never matched. A unit's *requirements* are derived from the unit itself
+(`WorkUnit::requirements()`): its `binding:<provider>/<model-id>@<quantization>`,
+its `delivery:<mode>` (+ `url-scheme` / `integration` / `forge` for a repository),
+each cell's `shape-language:<name>` and `gate:<kind>`. The **distance** is
+`requirements − capabilities`; **empty distance ⇒ executable**.
+
+**Admission is a distinct gate before verification.** At drain, a unit whose distance
+is non-empty **never runs** — the executor emits a `not-admitted` VerdictEvent
+carrying the concrete `missing-capabilities` and binding to `halt` (`tier-ran` and
+`cell-results` are absent — nothing ran). A higher tier never adds a missing
+capability, so the consumer re-routes to a covering box or surfaces to a human;
+`spark admit` also reports the distance as a pre-flight warning. A manifest match is
+pre-flight; the boundary stays authoritative (a `not-admitted` after a match means
+the manifest was stale).
+
+## Artifact delivery: `inline` vs `repository`
+
+`inline` returns each artifact by value in the verdict's `cell-results` (content-hash
+identified). `repository` lands the run in a **declared git repository** and the
+verdict carries `delivery-result` (branch, commit, `pr-url`) — refs, not payloads;
+the commit SHA is the content hash over the produced tree.
+
+```json
+"artifact-delivery": {
+  "mode": "repository",
+  "url": "file:///srv/repos/widget.git",      // file:/// local dev; https/ssh for production
+  "base-ref": "main",
+  "integration": { "method": "pull-request", "target-ref": "main", "branch-name": "spark/wu-1" }
+}
+```
+
+The executor clones the declared repo into the per-unit sandbox (concurrency
+isolation against one repo — worktrees/clones — is the sandbox's job, invisible to
+the seam), runs the cells, and on accept commits + pushes the branch (and, for
+`pull-request` against a known forge, derives the PR compare URL). **No credential
+material rides in the WorkUnit** — the frozen, hashed unit carries no token;
+repository push and forge-API access are exchanged executor-side at the boundary
+from the `credential-grant` reference and revoked at teardown. See
+[`examples/workunit-csharp-repo.json`](../examples/workunit-csharp-repo.json).
+
+---
+
 ## Conformance for the new deciders
 
 All seven production deciders are proven sound & complete and behaviourally conformant:

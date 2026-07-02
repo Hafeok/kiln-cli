@@ -1,0 +1,64 @@
+{
+  "unit-ref": "WU-csharp-slugify",
+  "parent-deliverable": "DL-string-utils",
+  "bundle-hash": "sha256:csharp-slugify-v1",
+  "tier": "day",
+  "acceptance-class": "auto-commit-if-green",
+  "ladder-position": 0,
+  "artifact-delivery": {
+    "mode": "inline"
+  },
+  "spmc-bundle": {
+    "model": {
+      "capability-tag": "spark-coder-light",
+      "binding": {
+        "provider": "local-vllm",
+        "model-id": "qwen3.6-35b",
+        "quantization": "FP8",
+        "invocation": {
+          "temperature": 0,
+          "top_p": 0.9,
+          "max_tokens": 4096
+        }
+      }
+    },
+    "context-pool": {
+      "bundle-form-profile": "json-canonical",
+      "fragments": [
+        {
+          "id": "frag-style",
+          "role": "decision",
+          "content": "House style: no external NuGet packages, target net8.0, nullable enabled. Keep the implementation a single pure static method with no side effects.",
+          "provenance": { "graph-node": "ADR-style-guide" }
+        },
+        {
+          "id": "frag-contract",
+          "role": "acceptance",
+          "content": "The implementation must satisfy this xUnit oracle (which you cannot modify). namespace Calc; the class is `public static class StringOps` exposing `public static string Slugify(string s)`. Cases: Slugify(\"Hello World!\")==\"hello-world\"; Slugify(\"  Rust & C#  \")==\"rust-c\"; Slugify(\"Already-slugged\")==\"already-slugged\"; Slugify(\"Multiple   spaces\")==\"multiple-spaces\"; Slugify(\"__Trim__me__\")==\"trim-me\"; Slugify(\"MiXeD CaSe 123\")==\"mixed-case-123\".",
+          "provenance": { "graph-node": "TC-slugify" }
+        }
+      ]
+    }
+  },
+  "cell-graph": {
+    "cells": [
+      {
+        "id": "impl",
+        "requires": [],
+        "schema": {
+          "shape-language": "prose",
+          "document": { "type": "string", "description": "one C# source file" }
+        },
+        "prompt": {
+          "content": "Write the complete contents of Calc/StringOps.cs. Define `namespace Calc;` and `public static class StringOps` with a single method `public static string Slugify(string s)`. Behaviour: lowercase the input (invariant), replace every run of one-or-more non-alphanumeric characters with a single '-', and trim any leading or trailing '-'. Output ONLY the C# source — no prose, no markdown fences."
+        },
+        "context-refs": ["frag-style", "frag-contract"],
+        "output": {
+          "artifact-id": "art-slugify-cs",
+          "media-type": "text/x-csharp",
+          "path": "Calc/StringOps.cs"
+        }
+      }
+    ]
+  }
+}

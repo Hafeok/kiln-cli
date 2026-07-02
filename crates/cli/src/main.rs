@@ -60,6 +60,7 @@ fn main() -> ExitCode {
     match refs.as_slice() {
         ["mode", "set", m] => cmd_mode_set(m),
         ["status"] => cmd_status(),
+        ["manifest"] => cmd_manifest(),
         ["admit", file] => cmd_admit(file),
         ["run"] => cmd_run(),
         ["serve"] => cmd_serve(),
@@ -71,13 +72,32 @@ fn main() -> ExitCode {
                  usage:\n  \
                  spark mode set <queue|explorer>   throw the developer switch\n  \
                  spark status                      show box mode + views\n  \
-                 spark admit <work-unit.json>      admit a frozen WorkUnit (homogeneity guard)\n  \
+                 spark manifest                    publish the CapabilityManifest (what can run here)\n  \
+                 spark admit <work-unit.json>      admit a frozen WorkUnit (structural + capability pre-flight)\n  \
                  spark run                         drain the work-unit set (QUEUE only)\n  \
                  spark serve                       drain isolated: sandbox+creds+worker+oracle+durable log\n  \
                  spark explore                     run a discovery session (EXPLORER only)\n  \
                  spark stream                      print the emitted VerdictEvents"
             );
             ExitCode::from(2)
+        }
+    }
+}
+
+/// Publish the executor's CapabilityManifest — the out-of-band self-description a
+/// producer matches a unit's requirements against before dispatch. Printed as the
+/// canonical kebab-case JSON so it can be piped to a registry or a file.
+fn cmd_manifest() -> ExitCode {
+    let e = load();
+    let manifest = e.publish_manifest(&now());
+    match serde_json::to_string_pretty(&manifest) {
+        Ok(json) => {
+            println!("{json}");
+            ExitCode::SUCCESS
+        }
+        Err(err) => {
+            eprintln!("cannot serialize manifest: {err}");
+            ExitCode::from(1)
         }
     }
 }
@@ -197,11 +217,25 @@ fn cmd_admit(file: &str) -> ExitCode {
     };
     let unit_ref = unit.unit_ref.clone();
     let mut e = load();
+    // Capability pre-flight: compute the unit's distance against the published
+    // manifest BEFORE enqueue. A match is not a guarantee (admission at drain stays
+    // authoritative), but a non-empty distance tells the developer the unit will be
+    // answered `not-admitted` — the concrete missing capabilities, not a surprise.
+    let missing = e.manifest.missing_for(&unit);
     match e.admit(unit) {
         Ok(()) => {
             save(&e).ok();
-            println!("admitted '{unit_ref}' -> queued (binding-homogeneous)");
-            ExitCode::SUCCESS
+            if missing.is_empty() {
+                println!("admitted '{unit_ref}' -> queued (binding-homogeneous; manifest covers its requirements)");
+                ExitCode::SUCCESS
+            } else {
+                println!("admitted '{unit_ref}' -> queued (binding-homogeneous)");
+                eprintln!(
+                    "warning: this box cannot cover '{unit_ref}' — it will be answered not-admitted at run.\n  missing capabilities:\n{}",
+                    missing.iter().map(|m| format!("    - {m}")).collect::<Vec<_>>().join("\n")
+                );
+                ExitCode::SUCCESS
+            }
         }
         Err(inv) => {
             save(&e).ok();
@@ -226,6 +260,9 @@ fn cmd_run() -> ExitCode {
                 println!("  escalated  {unit_ref} -> ladder {to_ladder} (whole unit, one binding up)")
             }
             DrainOutcome::Halted { unit_ref } => println!("  halted     {unit_ref} (ladder exhausted)"),
+            DrainOutcome::NotAdmitted { unit_ref, missing } => {
+                println!("  not-admitted {unit_ref} (never ran; missing: {})", missing.join(", "))
+            }
             DrainOutcome::Idle => break,
             DrainOutcome::NotQueueMode => break,
         }
@@ -321,16 +358,33 @@ fn cmd_serve() -> ExitCode {
         };
         match outcome {
             DrainOutcome::Accepted { unit_ref } => {
-                let safe: String = unit_ref.chars().map(|c| if c.is_alphanumeric() || c == '-' { c } else { '_' }).collect();
-                let patch = deliveries.join(format!("{safe}.patch"));
-                if patch.exists() {
-                    println!("  accepted   {unit_ref}  (verified → patch: {})", patch.display());
+                // Report where the accepted run landed per its delivery mode:
+                // a pushed branch (repository mode) or a reviewable patch (inline).
+                let landed = e
+                    .stream
+                    .last()
+                    .filter(|v| v.unit_ref == unit_ref)
+                    .and_then(|v| v.delivery_result.clone());
+                if let Some(d) = landed {
+                    match &d.pr_url {
+                        Some(url) => println!("  accepted   {unit_ref}  (verified → branch {} @ {}, PR: {url})", d.branch, d.commit),
+                        None => println!("  accepted   {unit_ref}  (verified → branch {} @ {})", d.branch, d.commit),
+                    }
                 } else {
-                    println!("  accepted   {unit_ref}  (verified; no diff to deliver)");
+                    let safe: String = unit_ref.chars().map(|c| if c.is_alphanumeric() || c == '-' { c } else { '_' }).collect();
+                    let patch = deliveries.join(format!("{safe}.patch"));
+                    if patch.exists() {
+                        println!("  accepted   {unit_ref}  (verified → patch: {})", patch.display());
+                    } else {
+                        println!("  accepted   {unit_ref}  (verified; no diff to deliver)");
+                    }
                 }
             }
             DrainOutcome::Escalated { unit_ref, to_ladder } => println!("  escalated  {unit_ref} -> ladder {to_ladder} (verification failed; retrying one tier up)"),
             DrainOutcome::Halted { unit_ref } => println!("  halted     {unit_ref} (ladder exhausted — verification never passed)"),
+            DrainOutcome::NotAdmitted { unit_ref, missing } => {
+                println!("  not-admitted {unit_ref} (never ran; box lacks: {})", missing.join(", "))
+            }
             DrainOutcome::Idle | DrainOutcome::NotQueueMode => break,
         }
         drained += 1;
@@ -362,10 +416,25 @@ fn cmd_stream() -> ExitCode {
         return ExitCode::SUCCESS;
     }
     for v in &e.stream {
+        let tier = v.tier_ran.as_deref().unwrap_or("-");
         println!(
             "{}  unit={}  verdict={:?}  tier={}  next={:?}  hash={}",
-            v.event_id, v.unit_ref, v.verdict, v.tier_ran, v.next_consequence, v.bundle_hash
+            v.event_id, v.unit_ref, v.verdict, tier, v.next_consequence, v.bundle_hash
         );
+        // not-admitted: nothing ran — the distance is the payload.
+        if let Some(missing) = &v.missing_capabilities {
+            println!("    not-admitted — missing capabilities:");
+            for m in missing {
+                println!("      - {m}");
+            }
+        }
+        // repository delivery: refs, not payloads.
+        if let Some(d) = &v.delivery_result {
+            match &d.pr_url {
+                Some(url) => println!("    delivered -> branch {} @ {}  (PR: {url})", d.branch, d.commit),
+                None => println!("    delivered -> branch {} @ {}", d.branch, d.commit),
+            }
+        }
         for c in &v.cell_results {
             match &c.artifact {
                 Some(a) => {
@@ -373,9 +442,6 @@ fn cmd_stream() -> ExitCode {
                         spark_interface::ArtifactBody::Inline { content } => {
                             let preview: String = content.chars().take(60).collect();
                             format!("inline: {}", preview.replace('\n', " "))
-                        }
-                        spark_interface::ArtifactBody::Workspace { path, reference } => {
-                            format!("workspace: {path} @ {reference}")
                         }
                     };
                     println!("    cell {:8} {:?}  [{}]  {}", c.cell_id, c.verdict, a.content_hash, where_);

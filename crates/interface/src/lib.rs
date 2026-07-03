@@ -12,12 +12,12 @@
 //! CapabilityManifest revision): the kebab-case JSON of
 //! [`work-unit.schema.json`](https://github.com/Hafeok/ai-development-contracts/blob/main/schemas/work-unit.schema.json)
 //! in, and the kebab-case [`verdict-event.schema.json`](https://github.com/Hafeok/ai-development-contracts/blob/main/schemas/verdict-event.schema.json)
-//! out. The structs in this module are spark's **internal, flattened** projection
+//! out. The structs in this module are kiln's **internal, flattened** projection
 //! — a WorkUnit admitted from the wire is parsed as the canonical nested shape
 //! ([`canonical::CanonicalWorkUnit`]) and mapped in via [`WorkUnit::from_canonical_json`].
 //! Keeping the internal model separate is the contract's rule made concrete: your
 //! internal representation is yours; you map to/from a normative encoding *at the
-//! seam*, and validate against that encoding's schema. spark reads the
+//! seam*, and validate against that encoding's schema. kiln reads the
 //! Execution-Contract additions (`environment`, `credential_grant`, `tool_grants`)
 //! when a producer carries them as a documented extension, and defaults them to a
 //! conformant floor when absent; it validates every incoming unit against the
@@ -645,7 +645,7 @@ pub fn bundle_hash(bundle: &serde_json::Value) -> String {
     content_hash(&canonical)
 }
 
-/// A JSON value rendered as the string spark's flat model carries: a bare string
+/// A JSON value rendered as the string kiln's flat model carries: a bare string
 /// passes through; anything structured (a message array, a number) is serialized.
 fn json_to_string(v: &serde_json::Value) -> String {
     match v {
@@ -657,9 +657,9 @@ fn json_to_string(v: &serde_json::Value) -> String {
 
 /// The **canonical contract wire types** — the exact kebab-case shape of
 /// [`work-unit.schema.json`](https://github.com/Hafeok/ai-development-contracts/blob/main/schemas/work-unit.schema.json)
-/// (ai-development-contracts v0.2.0). spark admits *this* shape and maps it into
+/// (ai-development-contracts v0.2.0). kiln admits *this* shape and maps it into
 /// the flattened internal [`WorkUnit`] via `From`. These are deserialize-only:
-/// the wire is canonical, spark's interior is its own concern.
+/// the wire is canonical, kiln's interior is its own concern.
 pub mod canonical {
     use super::*;
 
@@ -677,7 +677,7 @@ pub mod canonical {
         pub spmc_bundle: SpmcBundle,
         pub cell_graph: CellGraph,
         // Execution-Contract additions ride OUTSIDE the closed contract envelope;
-        // spark reads them when a producer carries them as an extension, else floors them.
+        // kiln reads them when a producer carries them as an extension, else floors them.
         #[serde(default)]
         pub environment: Option<Environment>,
         #[serde(default)]
@@ -769,7 +769,7 @@ pub mod canonical {
     #[derive(Clone, Debug, Deserialize)]
     #[serde(rename_all = "kebab-case")]
     pub struct CanonicalPrompt {
-        /// Prompt text or a structured message array — spark carries it as a string.
+        /// Prompt text or a structured message array — kiln carries it as a string.
         pub content: serde_json::Value,
         #[serde(default)]
         pub prompt_version: Option<String>,
@@ -789,7 +789,7 @@ pub mod canonical {
 }
 
 impl From<canonical::CanonicalWorkUnit> for WorkUnit {
-    /// Flatten the canonical contract shape into spark's internal model. The
+    /// Flatten the canonical contract shape into kiln's internal model. The
     /// unit-level `spmc-bundle.model.binding` becomes both the unit binding and
     /// every cell's binding (the contract has no per-cell binding — tier
     /// homogeneity is a unit property), so `is_binding_homogeneous()` holds by
@@ -869,7 +869,7 @@ impl From<canonical::CanonicalWorkUnit> for WorkUnit {
 impl WorkUnit {
     /// Admit a WorkUnit from the **canonical contract JSON** (kebab-case,
     /// ai-development-contracts v0.1.0). This is the seam entry point: the wire is
-    /// canonical, and the returned `WorkUnit` is spark's internal projection. The
+    /// canonical, and the returned `WorkUnit` is kiln's internal projection. The
     /// raw `spmc-bundle` is preserved verbatim on `spmc_bundle` so the unit's
     /// identity remains hashable/auditable against what was emitted.
     pub fn from_canonical_json(text: &str) -> serde_json::Result<WorkUnit> {
@@ -1011,7 +1011,7 @@ mod tests {
             integration: Integration {
                 method: IntegrationMethod::PushBranch,
                 target_ref: "main".into(),
-                branch_name: "spark/wu-1".into(),
+                branch_name: "kiln/wu-1".into(),
             },
         };
         let j = serde_json::to_value(&repo).unwrap();
@@ -1019,7 +1019,7 @@ mod tests {
         assert_eq!(j["url"], "file:///repo");
         assert_eq!(j["base-ref"], "main");
         assert_eq!(j["integration"]["method"], "push-branch");
-        assert_eq!(j["integration"]["branch-name"], "spark/wu-1");
+        assert_eq!(j["integration"]["branch-name"], "kiln/wu-1");
         assert_eq!(serde_json::from_value::<ArtifactDelivery>(j).unwrap(), repo);
     }
 
@@ -1053,7 +1053,7 @@ mod tests {
             integration: Integration {
                 method: IntegrationMethod::PullRequest,
                 target_ref: "main".into(),
-                branch_name: "spark/a".into(),
+                branch_name: "kiln/a".into(),
             },
         };
         let req = u.requirements();

@@ -1,7 +1,7 @@
 id: implement-decider
 name: "Implement an aggregate's decider"
 family: application
-archetype: spark-cli
+archetype: kiln-cli
 classification: core
 applies_when: "realising an aggregate whose behaviour the What graph specifies as a Decider"
 does_not_apply_when: "a pure read-model with no decision logic (use implement-projector)"
@@ -26,7 +26,7 @@ cells:
     artifact: "guarded decide function that emits only sanctioned events"
     path: "crates/<aggregate>/src/decide.rs"
     model: code
-    derived_from: ["domain:aggregate", "app-contract:spark-executor-app-contract"]
+    derived_from: ["domain:aggregate", "app-contract:kiln-executor-app-contract"]
     applies: ["cell-verdict-rollup"]
   - id: decider-tests
     artifact: "scenario tests mirroring the decider oracle (given/when/then)"

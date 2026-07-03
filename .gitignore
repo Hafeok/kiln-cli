@@ -2,7 +2,7 @@
 /target
 
 # Runtime state
-/.spark/
+/.kiln/
 
 # Product CLI session run artifacts
 /.product/sessions/

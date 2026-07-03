@@ -1,7 +1,7 @@
 id: wire-seam-schema
 name: "Wire a Work-Unit Interface schema"
 family: application
-archetype: spark-cli
+archetype: kiln-cli
 classification: core
 applies_when: "realising a Work-Unit Interface data schema (WorkUnit in, VerdictEvent out)"
 does_not_apply_when: "an internal type that does not cross the seam"
@@ -16,7 +16,7 @@ cells:
     artifact: "serde type carrying the bundle by value plus its bundle_hash identity"
     path: "crates/interface/src/<schema>.rs"
     model: code
-    derived_from: ["domain:schema", "app-contract:spark-executor-app-contract"]
+    derived_from: ["domain:schema", "app-contract:kiln-executor-app-contract"]
     applies: ["read-only-bundle-mount"]
   - id: schema-roundtrip-test
     artifact: "round-trip and hash-identity test for the schema"

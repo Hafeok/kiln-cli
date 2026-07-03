@@ -1,10 +1,10 @@
-# spark-cli
+# kiln-cli
 
 A Rust implementation of **Kiln** (the execution framework, formerly the Spark
 Execution Framework) — the execution pillar for running autonomous AI development
 work, with the NVIDIA DGX Spark as its reference substrate.
 
-`spark-cli` is the developer switch and executor loop. It **publishes a
+`kiln-cli` is the developer switch and executor loop. It **publishes a
 CapabilityManifest** (what can run here), admits frozen **WorkUnits**, runs their
 sealed cell-DAGs through a verification gate, and emits **VerdictEvents** —
 *computed*-done, never *claimed*-done. The whole thing is
@@ -39,7 +39,7 @@ mode; it lives elsewhere.)
   Quantization is load-bearing on the Spark; a heterogeneous unit is a decomposition
   defect and is never dispatched.
 - **CapabilityManifest** — the executor **publishes** its self-description out of
-  band (`spark manifest`): the `bindings` it can serve, the `delivery` modes/schemes/
+  band (`kiln manifest`): the `bindings` it can serve, the `delivery` modes/schemes/
   integration-methods/forges, the `shape-languages` and `gate-kinds` it runs. A
   producer matches a unit's derived *requirements* against it before dispatch —
   empty distance ⇒ executable. It is the one seam artifact the executor authors.
@@ -74,8 +74,8 @@ serving       Model Serving   — VRAM residency + batched inference + Worker se
 sandbox       Isolation       — per-unit ephemeral sandbox + brokered credentials     ← production
 stream        Verdict Stream  — durable, append-only, idempotent verdict log          ← production
 host          Serving Host    — vLLM residency materialized on the box over SSH       ← production
-executor      Engine          — composes everything; persists to .spark/state.json
-cli           spark / spark-conform binaries
+executor      Engine          — composes everything; persists to .kiln/state.json
+cli           kiln / kiln-conform binaries
 ```
 
 Each bounded context is one crate. Every aggregate is a **decider**
@@ -87,21 +87,21 @@ invariant id); every read-model is a **projector** (an event fold).
 ## Install & build
 
 ```bash
-cargo build --release        # produces target/release/spark and spark-conform
+cargo build --release        # produces target/release/kiln and kiln-conform
 cargo test                   # 97 tests across the workspace
 ```
 
 ## CLI usage
 
 ```bash
-spark manifest                       # publish the CapabilityManifest (what can run here)
-spark mode set queue                 # throw the developer switch into QUEUE
-spark admit work-unit.json           # admit a frozen WorkUnit (structural + capability pre-flight)
-spark run                            # drain the queue (in-memory demo path)
-spark serve                          # drain isolated: sandbox + creds + worker + oracle + durable log
-spark status                         # box mode + read-model views
-spark stream                         # print the emitted VerdictEvents
-spark mode set explorer && spark explore   # run a discovery session (EXPLORER only)
+kiln manifest                       # publish the CapabilityManifest (what can run here)
+kiln mode set queue                 # throw the developer switch into QUEUE
+kiln admit work-unit.json           # admit a frozen WorkUnit (structural + capability pre-flight)
+kiln run                            # drain the queue (in-memory demo path)
+kiln serve                          # drain isolated: sandbox + creds + worker + oracle + durable log
+kiln status                         # box mode + read-model views
+kiln stream                         # print the emitted VerdictEvents
+kiln mode set explorer && kiln explore   # run a discovery session (EXPLORER only)
 ```
 
 A WorkUnit is the **canonical contract JSON** — kebab-case throughout (`unit-ref`,
@@ -110,41 +110,41 @@ A WorkUnit is the **canonical contract JSON** — kebab-case throughout (`unit-r
 [`examples/workunit-csharp.json`](examples/workunit-csharp.json) (inline) and
 [`examples/workunit-csharp-repo.json`](examples/workunit-csharp-repo.json)
 (repository), plus [`docs/production-seams.md`](docs/production-seams.md) for the
-full `spark serve` pipeline.
+full `kiln serve` pipeline.
 
-State persists to `.spark/state.json`; the durable verdict log to
-`.spark/verdicts.jsonl`; per-unit sandboxes under `.spark/sandboxes/`.
+State persists to `.kiln/state.json`; the durable verdict log to
+`.kiln/verdicts.jsonl`; per-unit sandboxes under `.kiln/sandboxes/`.
 
 ### Pointing `serve` at a real model
 
-`spark serve` runs each unit's frontier through a **Worker** and gates it with a
+`kiln serve` runs each unit's frontier through a **Worker** and gates it with a
 **protected Oracle** — both wired by environment variable:
 
 ```bash
 # 1. an OpenAI-compatible model server on the box (llama-server / vLLM / TGI)
-export SPARK_OPENAI_BASE_URL=http://127.0.0.1:8080     # → built-in OpenAiWorker
-export SPARK_OPENAI_MODEL=qwen2.5-coder-7b             # optional
+export KILN_OPENAI_BASE_URL=http://127.0.0.1:8080     # → built-in OpenAiWorker
+export KILN_OPENAI_MODEL=qwen2.5-coder-7b             # optional
 # 2. the protected gate the worker cannot write (ADR-076)
-export SPARK_ORACLE_CMD='cargo test --quiet'
-spark mode set queue && spark admit unit.json && spark serve
+export KILN_ORACLE_CMD='cargo test --quiet'
+kiln mode set queue && kiln admit unit.json && kiln serve
 ```
 
-Worker precedence: a residency materialized by `spark mode set` → `SPARK_OPENAI_BASE_URL`
-(HTTP) → `SPARK_WORKER_CMD` (shell) → offline `StubWorker`. **Full box setup:
-[`docs/running-on-spark.md`](docs/running-on-spark.md).**
+Worker precedence: a residency materialized by `kiln mode set` → `KILN_OPENAI_BASE_URL`
+(HTTP) → `KILN_WORKER_CMD` (shell) → offline `StubWorker`. **Full box setup:
+[`docs/running-on-kiln.md`](docs/running-on-kiln.md).**
 
 ### Let the switch start the model (vLLM over SSH)
 
-When `SPARK_SSH_TARGET` is set, `spark mode set` *physically materializes* the
+When `KILN_SSH_TARGET` is set, `kiln mode set` *physically materializes* the
 residency: it retires any live host, then launches the mode's model as a **vLLM
 container** on the box over SSH, polls its `/v1` endpoint, and only serves once it
-answers. The switch becomes a real start/stop of VRAM, not a flag — and `spark
+answers. The switch becomes a real start/stop of VRAM, not a flag — and `kiln
 serve` then auto-targets that host.
 
 ```bash
-export SPARK_SSH_TARGET=dev@spark-abcd.local      # → built-in SshVllmHost backend
-export SPARK_QUEUE_MODEL=qwen2.5-coder-7b         # model vLLM loads in QUEUE
-spark mode set queue                              # launches the container, waits until ready
+export KILN_SSH_TARGET=dev@spark-abcd.local      # → built-in SshVllmHost backend
+export KILN_QUEUE_MODEL=qwen2.5-coder-7b         # model vLLM loads in QUEUE
+kiln mode set queue                              # launches the container, waits until ready
 ```
 
 ---
@@ -160,7 +160,7 @@ Framework model:
   Rust crate layout.
 - **Deciders & projectors** — every aggregate's guarded state machine, proven
   **sound & complete** by simulation against its scenarios.
-- **Behavioural conformance (§6.3)** — `spark-conform` replays the *realised* Rust
+- **Behavioural conformance (§6.3)** — `kiln-conform` replays the *realised* Rust
   deciders against the spec's scenario oracle. All 11 deciders are conformant.
 - **Deliverables** — acceptance criteria wired to named, passing `cargo test`s and
   **computed**-done.
@@ -170,8 +170,8 @@ Re-run the gates:
 ```bash
 product domain validate                       # What graph conformant
 product how validate                          # How contract conformant
-product archetype check spark-cli             # crate layout matches the tree
-CONF="$PWD/target/release/spark-conform"
+product archetype check kiln-cli             # crate layout matches the tree
+CONF="$PWD/target/release/kiln-conform"
 product decider conform box-decider --runner "$CONF box-decider"   # §6.3, per decider
 product deliverable done deliverable-serving  # computed-done %
 ```

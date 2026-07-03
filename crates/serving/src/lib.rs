@@ -3,7 +3,7 @@
 //! seam (the real model invocation, behind a trait so a GPU server plugs in).
 
 use serde::{Deserialize, Serialize};
-use spark_interface::{Cell, ModelBinding};
+use kiln_interface::{Cell, ModelBinding};
 
 // ───────────────────────── resident-set-decider ─────────────────────────
 
@@ -151,7 +151,7 @@ impl Worker for StubWorker {
 }
 
 /// Shells out to an external served model (e.g. a llama.cpp / vLLM CLI) named by
-/// `$SPARK_WORKER_CMD`, passing the prompt on stdin. A real, dependency-free seam.
+/// `$KILN_WORKER_CMD`, passing the prompt on stdin. A real, dependency-free seam.
 pub struct CommandWorker {
     pub command: String,
 }
@@ -264,7 +264,7 @@ pub struct OpenAiWorker {
     /// ON, a reasoning model spends its budget in `message.reasoning` and returns
     /// `content: null` when it runs out — useless for artifact extraction. We send
     /// `chat_template_kwargs.enable_thinking = false` so the answer lands in
-    /// `content`. Default true; set `SPARK_OPENAI_THINKING=on` to keep it.
+    /// `content`. Default true; set `KILN_OPENAI_THINKING=on` to keep it.
     pub disable_thinking: bool,
     /// Token ceiling for the completion when the binding declares none. A reasoning
     /// model needs headroom; default 2048.
@@ -272,17 +272,17 @@ pub struct OpenAiWorker {
 }
 
 impl OpenAiWorker {
-    /// Build from `SPARK_OPENAI_BASE_URL` (+ optional `_MODEL`, `_API_KEY`,
+    /// Build from `KILN_OPENAI_BASE_URL` (+ optional `_MODEL`, `_API_KEY`,
     /// `_THINKING`, `_MAX_TOKENS`). Returns `None` when no base URL is set, so
     /// callers fall back to another worker.
     pub fn from_env() -> Option<Self> {
-        let base_url = std::env::var("SPARK_OPENAI_BASE_URL").ok()?;
+        let base_url = std::env::var("KILN_OPENAI_BASE_URL").ok()?;
         Some(OpenAiWorker {
             base_url,
-            model: std::env::var("SPARK_OPENAI_MODEL").unwrap_or_default(),
-            api_key: std::env::var("SPARK_OPENAI_API_KEY").ok(),
-            disable_thinking: std::env::var("SPARK_OPENAI_THINKING").map(|v| v != "on").unwrap_or(true),
-            max_tokens: std::env::var("SPARK_OPENAI_MAX_TOKENS").ok().and_then(|s| s.parse().ok()).unwrap_or(2048),
+            model: std::env::var("KILN_OPENAI_MODEL").unwrap_or_default(),
+            api_key: std::env::var("KILN_OPENAI_API_KEY").ok(),
+            disable_thinking: std::env::var("KILN_OPENAI_THINKING").map(|v| v != "on").unwrap_or(true),
+            max_tokens: std::env::var("KILN_OPENAI_MAX_TOKENS").ok().and_then(|s| s.parse().ok()).unwrap_or(2048),
         })
     }
 
@@ -293,8 +293,8 @@ impl OpenAiWorker {
             base_url,
             model,
             api_key,
-            disable_thinking: std::env::var("SPARK_OPENAI_THINKING").map(|v| v != "on").unwrap_or(true),
-            max_tokens: std::env::var("SPARK_OPENAI_MAX_TOKENS").ok().and_then(|s| s.parse().ok()).unwrap_or(2048),
+            disable_thinking: std::env::var("KILN_OPENAI_THINKING").map(|v| v != "on").unwrap_or(true),
+            max_tokens: std::env::var("KILN_OPENAI_MAX_TOKENS").ok().and_then(|s| s.parse().ok()).unwrap_or(2048),
         }
     }
 }

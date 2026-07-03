@@ -5,20 +5,20 @@
 capabilities:
 # Light binding — QUEUE / day residency: Qwen3.6-35B-A3B MoE (3B active params),
 # served FP8. Batched, many units resident. This is the residency the box runs.
-- id: spark-coder-light
+- id: kiln-coder-light
   endpoint: worker
   model_identifier: qwen3.6-35b-a3b-fp8
   tier: 1
   status: active
 # Heavy binding — night / EXPLORER-adjacent residency: the large coder, serial.
-- id: spark-coder-heavy
+- id: kiln-coder-heavy
   endpoint: worker
   model_identifier: qwen3-coder-235b-a22b-instruct-q4_K_M
   tier: 3
   status: active
 # Verifier binding — cheap gate model for non-oracle checks (the protected
 # oracle itself is tests the worker cannot write; this backs soft gates only).
-- id: spark-verifier
+- id: kiln-verifier
   endpoint: worker
   model_identifier: qwen3-4b-instruct-q8_0
   tier: 1

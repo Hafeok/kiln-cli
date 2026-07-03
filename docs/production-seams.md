@@ -7,17 +7,17 @@ with a trait boundary so real infrastructure drops in without changing the spec.
 
 | Seam | Demo stub | Production crate | Trait seam | Local backend |
 |---|---|---|---|---|
-| Model serving | enum-flip, no model | `spark-serving` | `Worker` | `StubWorker` / `CommandWorker` |
-| Batched inference | one call per cell | `spark-serving` | — (`schedule_batches`) | homogeneous batch packing |
-| Isolation | no sandbox | `spark-sandbox` | `SandboxRuntime` | `LocalSandbox` (per-unit dir) |
-| Credentials | none | `spark-sandbox` | `CredentialBroker` | `LocalBroker` (leased token) |
-| Verdict stream | in-memory `Vec` | `spark-stream` | — (`DurableLog`) | append-only JSONL on disk |
-| Protected oracle | pass-all closure | `spark-execution` | `Oracle` | `CommandOracle` (ADR-076) |
-| Residency (vLLM host) | enum-flip, no process | `spark-host` | `ResidencyHost` | `LocalProcessHost` / `SshVllmHost` |
+| Model serving | enum-flip, no model | `kiln-serving` | `Worker` | `StubWorker` / `CommandWorker` |
+| Batched inference | one call per cell | `kiln-serving` | — (`schedule_batches`) | homogeneous batch packing |
+| Isolation | no sandbox | `kiln-sandbox` | `SandboxRuntime` | `LocalSandbox` (per-unit dir) |
+| Credentials | none | `kiln-sandbox` | `CredentialBroker` | `LocalBroker` (leased token) |
+| Verdict stream | in-memory `Vec` | `kiln-stream` | — (`DurableLog`) | append-only JSONL on disk |
+| Protected oracle | pass-all closure | `kiln-execution` | `Oracle` | `CommandOracle` (ADR-076) |
+| Residency (vLLM host) | enum-flip, no process | `kiln-host` | `ResidencyHost` | `LocalProcessHost` / `SshVllmHost` |
 
 ---
 
-## 1. Model Serving (`ctx-serving` → `spark-serving`)
+## 1. Model Serving (`ctx-serving` → `kiln-serving`)
 
 Two aggregates govern what the box can run *right now*:
 
@@ -37,11 +37,11 @@ pub trait Worker {
 ```
 
 - `StubWorker` — deterministic, offline; lets the whole pipeline run with no model.
-- `CommandWorker` — shells out to a served model named by `$SPARK_WORKER_CMD`
+- `CommandWorker` — shells out to a served model named by `$KILN_WORKER_CMD`
   (e.g. a llama.cpp / vLLM CLI), prompt on stdin, artifact on stdout. Dependency-free.
 - A GPU batching server is a drop-in third implementation.
 
-## 2. Isolation (`ctx-sandbox` → `spark-sandbox`)
+## 2. Isolation (`ctx-sandbox` → `kiln-sandbox`)
 
 - **`sandbox`** — the per-unit ephemeral boundary: private writable workspace, frozen
   bundle read-only, network restricted to declared destinations. `ProvisionSandbox`
@@ -64,10 +64,10 @@ pub trait CredentialBroker {
 }
 ```
 
-`LocalSandbox` gives a real per-unit directory under `.spark/sandboxes/`, removed at
+`LocalSandbox` gives a real per-unit directory under `.kiln/sandboxes/`, removed at
 verdict. A container/microVM runtime is a drop-in for hard isolation.
 
-## 3. Verdict Stream (`ctx-stream` → `spark-stream`)
+## 3. Verdict Stream (`ctx-stream` → `kiln-stream`)
 
 - **`verdict-log`** — durable, append-only log of `VerdictEvent`s. `AppendVerdict` is
   guarded by `inv-idempotent-append` (at most once per `bundle_hash`, so at-least-once
@@ -77,7 +77,7 @@ verdict. A container/microVM runtime is a drop-in for hard isolation.
 `DurableLog` is a real JSON-lines file that recovers its seen-hash set on reopen, so
 idempotency holds across restarts.
 
-## 4. Protected oracle (`oracle-run` in `ctx-execution` → `spark-execution`)
+## 4. Protected oracle (`oracle-run` in `ctx-execution` → `kiln-execution`)
 
 - **`oracle-run`** — one execution of a protected oracle gating a cell. `RunGate` is
   guarded by `inv-oracle-writable` (ADR-076): a gate may run only against an oracle
@@ -92,7 +92,7 @@ pub struct CommandOracle { pub command: String, pub worker_writable: bool }
 `worker_writable` is true it **fails closed** — an unverified gate is never trusted,
 even if the command passes.
 
-## 5. Serving Host (`ctx-host` → `spark-host`)
+## 5. Serving Host (`ctx-host` → `kiln-host`)
 
 The demo's switch flipped an enum; no model ever loaded. The **`serving-host`**
 aggregate makes the switch *materialize the residency physically*. `LaunchHost` is
@@ -115,12 +115,12 @@ pub trait ResidencyHost {
 - `LocalProcessHost` — a dev stand-in for an already-running local server.
 
 `Engine::launch_residency` retires any live host, launches the new one, waits for
-readiness, and confirms it — each transition `serving-host-decider`-gated. `spark
-mode set` calls it when `SPARK_SSH_TARGET` is configured.
+readiness, and confirms it — each transition `serving-host-decider`-gated. `kiln
+mode set` calls it when `KILN_SSH_TARGET` is configured.
 
 ---
 
-## The `spark serve` pipeline
+## The `kiln serve` pipeline
 
 `Engine::drain_one_isolated` composes all four seams for each unit:
 
@@ -135,23 +135,23 @@ mode set` calls it when `SPARK_SSH_TARGET` is configured.
 6. **Teardown**: destroy the sandbox and revoke the lease — nothing standing survives.
 
 ```bash
-spark mode set queue
-spark admit work-unit.json
-spark serve
+kiln mode set queue
+kiln admit work-unit.json
+kiln serve
 #   accepted   wu-demo-1  (sandbox provisioned → worker → oracle → logged → torn down)
-# isolated-drained 1 unit-attempt(s); durable log holds 1 verdict(s) at .spark/verdicts.jsonl
+# isolated-drained 1 unit-attempt(s); durable log holds 1 verdict(s) at .kiln/verdicts.jsonl
 ```
 
 ### Environment variables
 
 | Var | Effect | Default |
 |---|---|---|
-| `SPARK_WORKER_CMD` | shell command serving the model (prompt on stdin) | `StubWorker` (offline) |
-| `SPARK_ORACLE_CMD` | shell command for the protected gate | a passing protected oracle |
+| `KILN_WORKER_CMD` | shell command serving the model (prompt on stdin) | `StubWorker` (offline) |
+| `KILN_ORACLE_CMD` | shell command for the protected gate | a passing protected oracle |
 
 ### Example WorkUnit
 
-The wire is the **canonical [contract](https://github.com/Hafeok/ai-development-contracts) encoding** (kebab-case, nested `spmc-bundle` / `cell-graph`); `spark admit` parses it and maps it into the internal model. The model binding is unit-level (`spmc-bundle.model.binding`) — the contract has no per-cell binding, so tier homogeneity holds by construction.
+The wire is the **canonical [contract](https://github.com/Hafeok/ai-development-contracts) encoding** (kebab-case, nested `spmc-bundle` / `cell-graph`); `kiln admit` parses it and maps it into the internal model. The model binding is unit-level (`spmc-bundle.model.binding`) — the contract has no per-cell binding, so tier homogeneity holds by construction.
 
 ```json
 {
@@ -197,9 +197,9 @@ The wire is the **canonical [contract](https://github.com/Hafeok/ai-development-
 }
 ```
 
-The Execution-Contract additions spark uses to run in isolation — `environment`
+The Execution-Contract additions kiln uses to run in isolation — `environment`
 (the network/workspace boundary), `credential_grant`, `tool_grants` — ride
-**outside** the closed contract envelope. spark reads them when a producer carries
+**outside** the closed contract envelope. kiln reads them when a producer carries
 them as a documented extension alongside these fields, and otherwise floors them
 (empty environment scoped to a per-unit workspace, no credential, no tools).
 
@@ -211,7 +211,7 @@ The executor **publishes a CapabilityManifest** out of band — the one seam art
 it *authors* — so a producer can compute a unit's executability before dispatch:
 
 ```bash
-spark manifest    # → the canonical kebab-case CapabilityManifest JSON
+kiln manifest    # → the canonical kebab-case CapabilityManifest JSON
 ```
 
 It declares (normative for matching) the `bindings` the box serves, the `delivery`
@@ -228,7 +228,7 @@ is non-empty **never runs** — the executor emits a `not-admitted` VerdictEvent
 carrying the concrete `missing-capabilities` and binding to `halt` (`tier-ran` and
 `cell-results` are absent — nothing ran). A higher tier never adds a missing
 capability, so the consumer re-routes to a covering box or surfaces to a human;
-`spark admit` also reports the distance as a pre-flight warning. A manifest match is
+`kiln admit` also reports the distance as a pre-flight warning. A manifest match is
 pre-flight; the boundary stays authoritative (a `not-admitted` after a match means
 the manifest was stale).
 
@@ -244,7 +244,7 @@ the commit SHA is the content hash over the produced tree.
   "mode": "repository",
   "url": "file:///srv/repos/widget.git",      // file:/// local dev; https/ssh for production
   "base-ref": "main",
-  "integration": { "method": "pull-request", "target-ref": "main", "branch-name": "spark/wu-1" }
+  "integration": { "method": "pull-request", "target-ref": "main", "branch-name": "kiln/wu-1" }
 }
 ```
 
@@ -264,7 +264,7 @@ from the `credential-grant` reference and revoked at teardown. See
 All seven production deciders are proven sound & complete and behaviourally conformant:
 
 ```bash
-CONF="$PWD/target/release/spark-conform"
+CONF="$PWD/target/release/kiln-conform"
 for d in resident-set-decider work-batch-decider sandbox-decider \
          credential-lease-decider verdict-log-decider oracle-run-decider \
          serving-host-decider; do

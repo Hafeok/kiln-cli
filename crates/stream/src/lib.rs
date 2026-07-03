@@ -6,7 +6,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use spark_interface::VerdictEvent;
+use kiln_interface::VerdictEvent;
 
 // ───────────────────────── verdict-log-decider ──────────────────────────
 
@@ -128,7 +128,7 @@ impl DurableLog {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use spark_interface::{Consequence, Verdict};
+    use kiln_interface::{Consequence, Verdict};
 
     fn replay(es: &[LogEvent]) -> LogState {
         let mut s = LogState::default();
@@ -170,7 +170,7 @@ mod tests {
 
     #[test]
     fn durable_log_is_idempotent_and_survives_reopen() {
-        let dir = std::env::temp_dir().join("spark-test-stream");
+        let dir = std::env::temp_dir().join("kiln-test-stream");
         let _ = std::fs::remove_dir_all(&dir);
         let path = dir.join("verdicts.jsonl");
         {

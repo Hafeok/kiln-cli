@@ -1,5 +1,5 @@
 [package]
-name = "spark-executor"
+name = "kiln-executor"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
@@ -7,20 +7,20 @@ license.workspace = true
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
-spark-interface = { workspace = true }
-spark-switch = { workspace = true }
-spark-queue = { workspace = true }
-spark-execution = { workspace = true }
-spark-exploration = { workspace = true }
-spark-serving = { workspace = true }
-spark-sandbox = { workspace = true }
-spark-stream = { workspace = true }
-spark-host = { workspace = true }
+kiln-interface = { workspace = true }
+kiln-switch = { workspace = true }
+kiln-queue = { workspace = true }
+kiln-execution = { workspace = true }
+kiln-exploration = { workspace = true }
+kiln-serving = { workspace = true }
+kiln-sandbox = { workspace = true }
+kiln-stream = { workspace = true }
+kiln-host = { workspace = true }
 
 [dev-dependencies]
-spark-interface = { workspace = true }
-spark-switch = { workspace = true }
-spark-execution = { workspace = true }
-spark-serving = { workspace = true }
-spark-sandbox = { workspace = true }
-spark-stream = { workspace = true }
+kiln-interface = { workspace = true }
+kiln-switch = { workspace = true }
+kiln-execution = { workspace = true }
+kiln-serving = { workspace = true }
+kiln-sandbox = { workspace = true }
+kiln-stream = { workspace = true }

@@ -130,13 +130,13 @@ pub trait SandboxRuntime {
 }
 
 /// A real, filesystem-backed boundary: a private writable workspace per unit
-/// under `.spark/sandboxes/`, destroyed (removed) at teardown.
+/// under `.kiln/sandboxes/`, destroyed (removed) at teardown.
 pub struct LocalSandbox {
     pub root: PathBuf,
 }
 impl Default for LocalSandbox {
     fn default() -> Self {
-        LocalSandbox { root: PathBuf::from(".spark/sandboxes") }
+        LocalSandbox { root: PathBuf::from(".kiln/sandboxes") }
     }
 }
 impl SandboxRuntime for LocalSandbox {
@@ -218,7 +218,7 @@ mod tests {
     }
     #[test]
     fn local_sandbox_provisions_and_tears_down_a_real_dir() {
-        let sb = LocalSandbox { root: std::env::temp_dir().join("spark-test-sb") };
+        let sb = LocalSandbox { root: std::env::temp_dir().join("kiln-test-sb") };
         let ws = sb.provision("wu-1/x").unwrap();
         assert!(ws.exists());
         sb.teardown(&ws).unwrap();

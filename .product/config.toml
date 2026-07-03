@@ -1,4 +1,4 @@
-name = "spark-cli"
+name = "kiln-cli"
 schema-version = "1"
 
 [product]

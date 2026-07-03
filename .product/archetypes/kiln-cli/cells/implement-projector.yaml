@@ -1,7 +1,7 @@
 id: implement-projector
 name: "Implement a read-model projector"
 family: application
-archetype: spark-cli
+archetype: kiln-cli
 classification: supporting
 applies_when: "realising a read-model as an event-folding projector"
 does_not_apply_when: "behaviour that changes state (use implement-decider)"

@@ -1,19 +1,19 @@
-//! `spark` — the developer-facing CLI over the executor Engine. The developer
+//! `kiln` — the developer-facing CLI over the executor Engine. The developer
 //! switch is a deliberate human act here (top-level control); the executor loop
-//! runs below it. State persists to `.spark/state.json` between invocations.
+//! runs below it. State persists to `.kiln/state.json` between invocations.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use spark_execution::{CommandOracle, Oracle};
-use spark_executor::{DrainOutcome, Engine};
-use spark_host::{HostPhase, HostSpec, SshVllmHost};
-use spark_interface::{Cell, WorkUnit};
-use spark_sandbox::{LocalBroker, LocalSandbox};
-use spark_serving::{CommandWorker, OpenAiWorker, StubWorker, Worker};
-use spark_stream::DurableLog;
-use spark_switch::Mode;
+use kiln_execution::{CommandOracle, Oracle};
+use kiln_executor::{DrainOutcome, Engine};
+use kiln_host::{HostPhase, HostSpec, SshVllmHost};
+use kiln_interface::{Cell, WorkUnit};
+use kiln_sandbox::{LocalBroker, LocalSandbox};
+use kiln_serving::{CommandWorker, OpenAiWorker, StubWorker, Worker};
+use kiln_stream::DurableLog;
+use kiln_switch::Mode;
 
 /// The default protected oracle for the demo loop: it passes every cell. A real
 /// deployment plugs in test execution the worker cannot write. Crucially the
@@ -26,7 +26,7 @@ impl Oracle for PassingOracle {
 }
 
 fn state_path() -> PathBuf {
-    PathBuf::from(".spark/state.json")
+    PathBuf::from(".kiln/state.json")
 }
 
 fn load() -> Engine {
@@ -37,7 +37,7 @@ fn load() -> Engine {
 }
 
 fn save(engine: &Engine) -> std::io::Result<()> {
-    std::fs::create_dir_all(".spark")?;
+    std::fs::create_dir_all(".kiln")?;
     std::fs::write(state_path(), serde_json::to_string_pretty(engine).expect("serialize engine"))
 }
 
@@ -68,16 +68,16 @@ fn main() -> ExitCode {
         ["stream"] => cmd_stream(),
         _ => {
             eprintln!(
-                "spark — Spark execution engine\n\n\
+                "kiln — Kiln execution engine\n\n\
                  usage:\n  \
-                 spark mode set <queue|explorer>   throw the developer switch\n  \
-                 spark status                      show box mode + views\n  \
-                 spark manifest                    publish the CapabilityManifest (what can run here)\n  \
-                 spark admit <work-unit.json>      admit a frozen WorkUnit (structural + capability pre-flight)\n  \
-                 spark run                         drain the work-unit set (QUEUE only)\n  \
-                 spark serve                       drain isolated: sandbox+creds+worker+oracle+durable log\n  \
-                 spark explore                     run a discovery session (EXPLORER only)\n  \
-                 spark stream                      print the emitted VerdictEvents"
+                 kiln mode set <queue|explorer>   throw the developer switch\n  \
+                 kiln status                      show box mode + views\n  \
+                 kiln manifest                    publish the CapabilityManifest (what can run here)\n  \
+                 kiln admit <work-unit.json>      admit a frozen WorkUnit (structural + capability pre-flight)\n  \
+                 kiln run                         drain the work-unit set (QUEUE only)\n  \
+                 kiln serve                       drain isolated: sandbox+creds+worker+oracle+durable log\n  \
+                 kiln explore                     run a discovery session (EXPLORER only)\n  \
+                 kiln stream                      print the emitted VerdictEvents"
             );
             ExitCode::from(2)
         }
@@ -139,17 +139,17 @@ fn mode_lower(m: Mode) -> &'static str {
 /// box is configured (the offline/dev path — logical switch only). The model
 /// served differs by mode (small coder for QUEUE, a large model for EXPLORER).
 fn host_spec_for(mode: Mode) -> Option<HostSpec> {
-    let ssh_target = std::env::var("SPARK_SSH_TARGET").ok()?;
+    let ssh_target = std::env::var("KILN_SSH_TARGET").ok()?;
     let model = match mode {
-        Mode::Queue => std::env::var("SPARK_QUEUE_MODEL").ok(),
-        Mode::Explorer => std::env::var("SPARK_EXPLORER_MODEL").ok(),
+        Mode::Queue => std::env::var("KILN_QUEUE_MODEL").ok(),
+        Mode::Explorer => std::env::var("KILN_EXPLORER_MODEL").ok(),
         Mode::Off => None,
     }
-    .or_else(|| std::env::var("SPARK_VLLM_MODEL").ok())
+    .or_else(|| std::env::var("KILN_VLLM_MODEL").ok())
     .unwrap_or_else(|| "default".into());
-    let port = std::env::var("SPARK_VLLM_PORT").ok().and_then(|s| s.parse().ok()).unwrap_or(8000);
-    let image = std::env::var("SPARK_VLLM_IMAGE").unwrap_or_else(|_| "vllm/vllm-openai:latest".into());
-    let extra_args = std::env::var("SPARK_VLLM_ARGS")
+    let port = std::env::var("KILN_VLLM_PORT").ok().and_then(|s| s.parse().ok()).unwrap_or(8000);
+    let image = std::env::var("KILN_VLLM_IMAGE").unwrap_or_else(|_| "vllm/vllm-openai:latest".into());
+    let extra_args = std::env::var("KILN_VLLM_ARGS")
         .ok()
         .map(|s| s.split_whitespace().map(String::from).collect())
         .unwrap_or_default();
@@ -157,7 +157,7 @@ fn host_spec_for(mode: Mode) -> Option<HostSpec> {
 }
 
 /// Retire the prior host and launch + ready the new mode's vLLM container over
-/// SSH. A no-op (logical switch only) when `SPARK_SSH_TARGET` is unset.
+/// SSH. A no-op (logical switch only) when `KILN_SSH_TARGET` is unset.
 fn materialize_if_configured(e: &mut Engine, mode: Mode) {
     let Some(spec) = host_spec_for(mode) else {
         return;
@@ -207,7 +207,7 @@ fn cmd_admit(file: &str) -> ExitCode {
         }
     };
     // The wire is the canonical contract encoding (kebab-case, nested spmc-bundle /
-    // cell-graph). Parse and map it into spark's internal projection at the seam.
+    // cell-graph). Parse and map it into kiln's internal projection at the seam.
     let unit: WorkUnit = match WorkUnit::from_canonical_json(&text) {
         Ok(u) => u,
         Err(err) => {
@@ -248,7 +248,7 @@ fn cmd_admit(file: &str) -> ExitCode {
 fn cmd_run() -> ExitCode {
     let mut e = load();
     if e.mode != Mode::Queue {
-        eprintln!("box is {:?}; the executor drains only in QUEUE. `spark mode set queue` first.", e.mode);
+        eprintln!("box is {:?}; the executor drains only in QUEUE. `kiln mode set queue` first.", e.mode);
         return ExitCode::from(1);
     }
     let oracle = PassingOracle;
@@ -278,58 +278,58 @@ fn cmd_run() -> ExitCode {
 
 /// The production drain: each unit runs inside a per-unit `LocalSandbox` with a
 /// brokered credential lease, its frontier executed by a `Worker` (a real served
-/// model via `$SPARK_WORKER_CMD`, else the deterministic stub) and gated by a
-/// protected oracle (`$SPARK_ORACLE_CMD` the worker cannot write, else pass-all),
+/// model via `$KILN_WORKER_CMD`, else the deterministic stub) and gated by a
+/// protected oracle (`$KILN_ORACLE_CMD` the worker cannot write, else pass-all),
 /// with every verdict appended to a durable, idempotent log on disk.
 fn cmd_serve() -> ExitCode {
     let mut e = load();
     if e.mode != Mode::Queue {
-        eprintln!("box is {:?}; isolated drain runs only in QUEUE. `spark mode set queue` first.", e.mode);
+        eprintln!("box is {:?}; isolated drain runs only in QUEUE. `kiln mode set queue` first.", e.mode);
         return ExitCode::from(1);
     }
     let sandbox = LocalSandbox::default();
     let broker = LocalBroker;
-    // Worker precedence: a residency materialized by `spark mode set` (the vLLM
+    // Worker precedence: a residency materialized by `kiln mode set` (the vLLM
     // host on the box) → an OpenAI-compatible server named by env → a per-cell
     // shell command → the deterministic offline stub.
     let worker: Box<dyn Worker> = if e.host.phase == HostPhase::Ready && e.host_handle.is_some() {
         let h = e.host_handle.clone().unwrap();
         eprintln!("worker: materialized vLLM host @ {}", h.endpoint);
-        Box::new(OpenAiWorker::for_endpoint(h.endpoint, h.model, std::env::var("SPARK_OPENAI_API_KEY").ok()))
+        Box::new(OpenAiWorker::for_endpoint(h.endpoint, h.model, std::env::var("KILN_OPENAI_API_KEY").ok()))
     } else if let Some(http) = OpenAiWorker::from_env() {
         eprintln!("worker: OpenAI HTTP @ {}", http.base_url);
         Box::new(http)
-    } else if let Ok(cmd) = std::env::var("SPARK_WORKER_CMD") {
+    } else if let Ok(cmd) = std::env::var("KILN_WORKER_CMD") {
         eprintln!("worker: command `{cmd}`");
         Box::new(CommandWorker { command: cmd })
     } else {
-        eprintln!("worker: offline stub (set SPARK_OPENAI_BASE_URL or SPARK_WORKER_CMD for a real model)");
+        eprintln!("worker: offline stub (set KILN_OPENAI_BASE_URL or KILN_WORKER_CMD for a real model)");
         Box::new(StubWorker)
     };
     // A protected oracle (worker_writable: false) — its command runs in the
     // seeded workspace against the produced artifacts. With no command, fall back
     // to pass-all so the loop runs offline, but WARN: a pass-all verdict means
     // "the model returned something", not "it builds and tests pass".
-    let oracle: Box<dyn Oracle> = match std::env::var("SPARK_ORACLE_CMD") {
+    let oracle: Box<dyn Oracle> = match std::env::var("KILN_ORACLE_CMD") {
         Ok(cmd) => {
             eprintln!("oracle: `{cmd}` (protected, runs in the seeded workspace)");
             Box::new(CommandOracle { command: cmd, worker_writable: false })
         }
         Err(_) => {
-            eprintln!("oracle: pass-all (set SPARK_ORACLE_CMD='cargo test' for a REAL gate — verdicts are not meaningful without it)");
+            eprintln!("oracle: pass-all (set KILN_ORACLE_CMD='cargo test' for a REAL gate — verdicts are not meaningful without it)");
             Box::new(CommandOracle { command: "true".into(), worker_writable: false })
         }
     };
     // The product checkout to seed each sandbox from, so the oracle builds/tests
     // in a real project tree. Absent ⇒ an empty sandbox (inline-eval only).
-    let seed = std::env::var("SPARK_WORKSPACE_SEED").ok().map(PathBuf::from);
+    let seed = std::env::var("KILN_WORKSPACE_SEED").ok().map(PathBuf::from);
     if let Some(s) = &seed {
         eprintln!("seed: {} (each unit runs in a fresh clone)", s.display());
     } else {
-        eprintln!("seed: none (set SPARK_WORKSPACE_SEED=/path/to/repo to build/test artifacts in a real tree)");
+        eprintln!("seed: none (set KILN_WORKSPACE_SEED=/path/to/repo to build/test artifacts in a real tree)");
     }
-    let deliveries = PathBuf::from(".spark/deliveries");
-    let mut log = match DurableLog::open(".spark/verdicts.jsonl") {
+    let deliveries = PathBuf::from(".kiln/deliveries");
+    let mut log = match DurableLog::open(".kiln/verdicts.jsonl") {
         Ok(l) => l,
         Err(err) => {
             eprintln!("cannot open durable log: {err}");
@@ -393,7 +393,7 @@ fn cmd_serve() -> ExitCode {
         }
     }
     save(&e).ok();
-    println!("isolated-drained {drained} unit-attempt(s); durable log holds {} verdict(s) at .spark/verdicts.jsonl", log.len());
+    println!("isolated-drained {drained} unit-attempt(s); durable log holds {} verdict(s) at .kiln/verdicts.jsonl", log.len());
     ExitCode::SUCCESS
 }
 
@@ -439,7 +439,7 @@ fn cmd_stream() -> ExitCode {
             match &c.artifact {
                 Some(a) => {
                     let where_ = match &a.delivery {
-                        spark_interface::ArtifactBody::Inline { content } => {
+                        kiln_interface::ArtifactBody::Inline { content } => {
                             let preview: String = content.chars().take(60).collect();
                             format!("inline: {}", preview.replace('\n', " "))
                         }

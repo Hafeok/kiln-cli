@@ -5,8 +5,8 @@
 
 use std::path::Path;
 
-use spark_interface::{Cell, CellResult, Consequence, Verdict};
-use spark_switch::Mode;
+use kiln_interface::{Cell, CellResult, Consequence, Verdict};
+use kiln_switch::Mode;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Phase {
@@ -187,7 +187,7 @@ impl VerdictStreamView {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use spark_interface::ModelBinding;
+    use kiln_interface::ModelBinding;
     use std::collections::BTreeMap;
 
     fn replay(events: &[RunEvent]) -> RunState {
@@ -362,7 +362,7 @@ impl Oracle for CommandOracle {
 #[cfg(test)]
 mod oracle_tests {
     use super::*;
-    use spark_interface::ModelBinding;
+    use kiln_interface::ModelBinding;
     use std::collections::BTreeMap;
 
     fn cell() -> Cell {

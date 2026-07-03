@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use spark_interface::WorkUnit;
+use kiln_interface::WorkUnit;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Lifecycle {

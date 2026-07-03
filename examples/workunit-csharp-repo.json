@@ -12,12 +12,12 @@
     "integration": {
       "method": "pull-request",
       "target-ref": "main",
-      "branch-name": "spark/slugify"
+      "branch-name": "kiln/slugify"
     }
   },
   "spmc-bundle": {
     "model": {
-      "capability-tag": "spark-coder-light",
+      "capability-tag": "kiln-coder-light",
       "binding": {
         "provider": "local-vllm",
         "model-id": "qwen3.6-35b",

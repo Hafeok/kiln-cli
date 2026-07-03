@@ -6,9 +6,9 @@ role_bindings:
 # The coder that fills a unit's cells in QUEUE. Light day binding -> heavy night
 # binding on repeated failure or foundational stakes (the role-binding-ladder).
 - role_id: cell-worker
-  default_capability: spark-coder-light
+  default_capability: kiln-coder-light
   escalation_steps:
-  - capability: spark-coder-heavy
+  - capability: kiln-coder-heavy
     triggers:
     - prior_attempts_ge_5
     - stakes_foundational
@@ -16,14 +16,14 @@ role_bindings:
 # Gates a cell against the protected oracle; escalates a soft-gate judgement to
 # the heavy binding when confidence is low.
 - role_id: verifier
-  default_capability: spark-verifier
+  default_capability: kiln-verifier
   escalation_steps:
-  - capability: spark-coder-heavy
+  - capability: kiln-coder-heavy
     triggers:
     - confidence_below_0.5
   active: true
 # EXPLORER-mode driver: the largest resident coder running the OpenCode loop.
 # Already the top local binding, so no further local rung.
 - role_id: explorer
-  default_capability: spark-coder-heavy
+  default_capability: kiln-coder-heavy
   active: true

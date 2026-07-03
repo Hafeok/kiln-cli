@@ -8,16 +8,16 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
-use spark_execution::{consequence_of, reduce_verdict, walk_cells, Oracle, RunCommand, RunState};
-use spark_host::{probe_ready, HostCommand, HostHandle, HostSpec, HostState, ResidencyHost, ServingHostView};
-use spark_exploration::{SessionCommand, SessionState};
-use spark_interface::{
+use kiln_execution::{consequence_of, reduce_verdict, walk_cells, Oracle, RunCommand, RunState};
+use kiln_host::{probe_ready, HostCommand, HostHandle, HostSpec, HostState, ResidencyHost, ServingHostView};
+use kiln_exploration::{SessionCommand, SessionState};
+use kiln_interface::{
     Artifact, ArtifactBody, ArtifactDelivery, Capabilities, CapabilityManifest, Cell,
     DeliveryCapability, DeliveryResult, Integration, IntegrationMethod, ManifestBinding, Operational,
     Verdict, VerdictEvent, WorkUnit, content_hash,
 };
-use spark_queue::{decide_admission, HeterogeneityRateView, PrioritySetView, UnitCommand, UnitEvent, UnitState};
-use spark_switch::{BoxCommand, BoxState, BoxStatusView, Mode};
+use kiln_queue::{decide_admission, HeterogeneityRateView, PrioritySetView, UnitCommand, UnitEvent, UnitState};
+use kiln_switch::{BoxCommand, BoxState, BoxStatusView, Mode};
 
 /// The top ladder rung: a unit may escalate light(0) -> heavy(1); a rejecting
 /// verdict at the heavy binding halts the unit (the ladder is exhausted).
@@ -346,7 +346,7 @@ impl Engine {
     pub fn reprioritize_to_front(&mut self, unit_ref: &str) -> Result<(), &'static str> {
         let idx = self.priority_set.iter().position(|u| u.unit_ref == unit_ref);
         // A queued unit is, by construction, in the set; the decider guards the rest.
-        let guard = if idx.is_some() { UnitState { state: spark_queue::Lifecycle::Queued, ladder: 0 } } else { UnitState::default() };
+        let guard = if idx.is_some() { UnitState { state: kiln_queue::Lifecycle::Queued, ladder: 0 } } else { UnitState::default() };
         guard.decide(&UnitCommand::Reprioritize)?;
         let i = idx.unwrap();
         let u = self.priority_set.remove(i);
@@ -415,7 +415,7 @@ impl Engine {
     /// Unit-atomic escalation: re-enqueue the whole unit one binding up if the
     /// ladder has headroom, else halt it in failed.
     fn escalate(&mut self, mut unit: WorkUnit) -> DrainOutcome {
-        let guard = UnitState { state: spark_queue::Lifecycle::Queued, ladder: unit.ladder_position };
+        let guard = UnitState { state: kiln_queue::Lifecycle::Queued, ladder: unit.ladder_position };
         match guard.decide(&UnitCommand::Escalate { max_ladder: MAX_LADDER }) {
             Ok(events) => {
                 for e in &events {
@@ -442,7 +442,7 @@ impl Engine {
 
     pub fn produce_discovery_record(&mut self) -> Result<(), &'static str> {
         // A started session is active; the decider guards an unstarted one.
-        let state = if self.utilization.exploring { SessionState { phase: spark_exploration::Phase::Active } } else { SessionState::default() };
+        let state = if self.utilization.exploring { SessionState { phase: kiln_exploration::Phase::Active } } else { SessionState::default() };
         state.decide(&SessionCommand::ProduceDiscoveryRecord)?;
         self.utilization.exploring = false;
         self.utilization.discoveries += 1;
@@ -453,16 +453,16 @@ impl Engine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use spark_interface::{Cell, ModelBinding};
+    use kiln_interface::{Cell, ModelBinding};
     use std::collections::BTreeMap;
 
     struct AllPass;
     impl Oracle for AllPass {
-        fn gate(&self, _c: &spark_interface::Cell) -> bool { true }
+        fn gate(&self, _c: &kiln_interface::Cell) -> bool { true }
     }
     struct AllFail;
     impl Oracle for AllFail {
-        fn gate(&self, _c: &spark_interface::Cell) -> bool { false }
+        fn gate(&self, _c: &kiln_interface::Cell) -> bool { false }
     }
 
     fn binding(model: &str, q: &str) -> ModelBinding {
@@ -544,7 +544,7 @@ mod tests {
         assert_eq!(ev.verdict, Verdict::NotAdmitted);
         assert_eq!(ev.tier_ran, None);
         assert!(ev.cell_results.is_empty());
-        assert_eq!(ev.next_consequence, spark_interface::Consequence::Halt);
+        assert_eq!(ev.next_consequence, kiln_interface::Consequence::Halt);
         assert_eq!(e.utilization.in_flight, 0); // never entered flight
     }
 
@@ -598,7 +598,7 @@ mod tests {
 
     #[test]
     fn materializing_a_residency_launches_confirms_ready_then_retires() {
-        use spark_host::{HostPhase, HostSpec, LocalProcessHost, ServingHostView};
+        use kiln_host::{HostPhase, HostSpec, LocalProcessHost, ServingHostView};
         use std::net::TcpListener;
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -629,9 +629,9 @@ mod tests {
 
 // ───────────────────── production drain (all seams composed) ─────────────
 
-use spark_sandbox::{CredentialBroker, LeaseCommand, LeaseState, SandboxCommand, SandboxRuntime, SandboxState};
-use spark_serving::{BatchCommand, BatchState, Worker};
-use spark_stream::DurableLog;
+use kiln_sandbox::{CredentialBroker, LeaseCommand, LeaseState, SandboxCommand, SandboxRuntime, SandboxState};
+use kiln_serving::{BatchCommand, BatchState, Worker};
+use kiln_stream::DurableLog;
 
 /// Assemble a cell's worker prompt from its frozen inputs: the selected context
 /// fragments (C, in `context_refs` order), then the artifacts produced by this
@@ -745,7 +745,7 @@ fn seed_workspace(seed: &std::path::Path, workspace: &std::path::Path) -> std::i
         }
         // fall through to a plain copy if git is unavailable or the clone failed
     }
-    copy_dir_excluding(seed, workspace, &["target", ".git", "node_modules", "bin", "obj", ".spark"])
+    copy_dir_excluding(seed, workspace, &["target", ".git", "node_modules", "bin", "obj", ".kiln"])
 }
 
 /// Recursive copy of `src` into `dst`, skipping directory names in `exclude`.
@@ -781,7 +781,7 @@ fn ensure_git_baseline(workspace: &std::path::Path) {
     };
     git(&["init", "-q"]);
     git(&["add", "-A"]);
-    git(&["-c", "user.email=spark@local", "-c", "user.name=spark", "commit", "-q", "-m", "seed baseline", "--allow-empty"]);
+    git(&["-c", "user.email=kiln@local", "-c", "user.name=kiln", "commit", "-q", "-m", "seed baseline", "--allow-empty"]);
 }
 
 /// Emit a reviewable unified diff of everything the unit changed in `workspace` to
@@ -793,7 +793,7 @@ fn emit_patch(workspace: &std::path::Path, out_path: &std::path::Path) -> Option
     }
     // Exclude build output the oracle produced (e.g. `cargo test` creates target/)
     // so the delivered diff is just the unit's source changes.
-    let excludes = [":!target", ":!node_modules", ":!bin", ":!obj", ":!.spark", ":!.git"];
+    let excludes = [":!target", ":!node_modules", ":!bin", ":!obj", ":!.kiln", ":!.git"];
     let mut add = std::process::Command::new("git");
     add.arg("-C").arg(workspace).args(["add", "-A", "--", "."]).args(excludes);
     let _ = add.status();
@@ -854,7 +854,7 @@ fn deliver_to_repository(
     }
     let safe: String = unit_ref.chars().map(|c| if c.is_alphanumeric() || c == '-' || c == '/' { c } else { '_' }).collect();
     let branch = if integration.branch_name.trim().is_empty() {
-        format!("spark/{safe}")
+        format!("kiln/{safe}")
     } else {
         integration.branch_name.clone()
     };
@@ -864,7 +864,7 @@ fn deliver_to_repository(
     // A branch for this run, then stage the unit's source changes (excluding build
     // output the oracle produced) and commit them.
     let _ = git(&["checkout", "-q", "-B", &branch]);
-    let excludes = [":!target", ":!node_modules", ":!bin", ":!obj", ":!.spark", ":!.git"];
+    let excludes = [":!target", ":!node_modules", ":!bin", ":!obj", ":!.kiln", ":!.git"];
     {
         let mut add = std::process::Command::new("git");
         add.arg("-C").arg(workspace).args(["add", "-A", "--", "."]).args(excludes);
@@ -872,8 +872,8 @@ fn deliver_to_repository(
     }
     let commit_ok = std::process::Command::new("git")
         .arg("-C").arg(workspace)
-        .args(["-c", "user.email=spark@local", "-c", "user.name=spark", "commit", "-q", "-m"])
-        .arg(format!("spark: {unit_ref}"))
+        .args(["-c", "user.email=kiln@local", "-c", "user.name=kiln", "commit", "-q", "-m"])
+        .arg(format!("kiln: {unit_ref}"))
         .status()
         .map(|s| s.success())
         .unwrap_or(false);
@@ -902,7 +902,7 @@ fn deliver_to_repository(
     // producer reconciles against. (Opening the PR is a forge API call under the
     // executor-side credential; the derived URL is the ref the producer expects.)
     let pr_url = if matches!(integration.method, IntegrationMethod::PullRequest) && pushed {
-        let (scheme, host) = spark_interface::url_scheme_and_host(url);
+        let (scheme, host) = kiln_interface::url_scheme_and_host(url);
         match (scheme.as_str(), host) {
             ("https", Some(h)) if h == "github.com" => {
                 let repo = url.trim_end_matches(".git").trim_start_matches("https://github.com/");
@@ -1055,10 +1055,10 @@ impl Engine {
         let report = oracle.verify(&workspace);
         let all_produced = produced_content.len() == unit.cell_graph.len();
         let passed = report.passed && all_produced;
-        let mut cell_results: Vec<spark_interface::CellResult> = Vec::new();
+        let mut cell_results: Vec<kiln_interface::CellResult> = Vec::new();
         for cell in &unit.cell_graph {
             let produced_here = produced_content.contains_key(&cell.cell_id);
-            let mut r = spark_interface::CellResult::gated(cell.cell_id.clone(), passed && produced_here);
+            let mut r = kiln_interface::CellResult::gated(cell.cell_id.clone(), passed && produced_here);
             r.artifact = produced.get(&cell.cell_id).cloned();
             r.evidence = report.evidence.clone();
             cell_results.push(r);
@@ -1131,9 +1131,9 @@ impl Engine {
 #[cfg(test)]
 mod production_tests {
     use super::*;
-    use spark_interface::{Cell, Environment, ModelBinding};
-    use spark_sandbox::{LocalBroker, LocalSandbox};
-    use spark_serving::StubWorker;
+    use kiln_interface::{Cell, Environment, ModelBinding};
+    use kiln_sandbox::{LocalBroker, LocalSandbox};
+    use kiln_serving::StubWorker;
     use std::collections::BTreeMap;
 
     struct PassOracle;
@@ -1173,7 +1173,7 @@ mod production_tests {
 
     #[test]
     fn full_isolated_drain_provisions_runs_gates_emits_and_tears_down() {
-        let dir = std::env::temp_dir().join("spark-prod-test");
+        let dir = std::env::temp_dir().join("kiln-prod-test");
         let _ = std::fs::remove_dir_all(&dir);
         let sandbox = LocalSandbox { root: dir.join("sandboxes") };
         let mut log = DurableLog::open(dir.join("verdicts.jsonl")).unwrap();
@@ -1195,8 +1195,8 @@ mod production_tests {
 
     #[test]
     fn real_oracle_failing_verification_escalates_with_evidence() {
-        use spark_execution::CommandOracle;
-        let dir = std::env::temp_dir().join("spark-oracle-fail");
+        use kiln_execution::CommandOracle;
+        let dir = std::env::temp_dir().join("kiln-oracle-fail");
         let _ = std::fs::remove_dir_all(&dir);
         let sandbox = LocalSandbox { root: dir.join("sandboxes") };
         let mut log = DurableLog::open(dir.join("v.jsonl")).unwrap();
@@ -1218,8 +1218,8 @@ mod production_tests {
 
     #[test]
     fn real_oracle_passing_accepts_and_delivers_a_patch() {
-        use spark_execution::CommandOracle;
-        let dir = std::env::temp_dir().join("spark-oracle-pass");
+        use kiln_execution::CommandOracle;
+        let dir = std::env::temp_dir().join("kiln-oracle-pass");
         let _ = std::fs::remove_dir_all(&dir);
         let sandbox = LocalSandbox { root: dir.join("sandboxes") };
         let mut log = DurableLog::open(dir.join("v.jsonl")).unwrap();
@@ -1243,8 +1243,8 @@ mod production_tests {
 
     #[test]
     fn inline_delivery_returns_content_hashed_artifacts_in_the_verdict() {
-        use spark_interface::{ArtifactBody, CellVerdict};
-        let dir = std::env::temp_dir().join("spark-inline-test");
+        use kiln_interface::{ArtifactBody, CellVerdict};
+        let dir = std::env::temp_dir().join("kiln-inline-test");
         let _ = std::fs::remove_dir_all(&dir);
         let sandbox = LocalSandbox { root: dir.join("sandboxes") };
         let mut log = DurableLog::open(dir.join("verdicts.jsonl")).unwrap();
@@ -1272,14 +1272,14 @@ mod production_tests {
     /// commit) and NO inline artifact bodies.
     #[test]
     fn repository_delivery_pushes_a_branch_and_reports_refs() {
-        use spark_interface::{ArtifactDelivery, Integration, IntegrationMethod};
+        use kiln_interface::{ArtifactDelivery, Integration, IntegrationMethod};
         // A `git` binary is required; skip cleanly if absent (this is a unit test).
         let git_ok = std::process::Command::new("git").arg("--version").output().map(|o| o.status.success()).unwrap_or(false);
         if !git_ok {
             eprintln!("skipping: git not on PATH");
             return;
         }
-        let dir = std::env::temp_dir().join("spark-repo-delivery");
+        let dir = std::env::temp_dir().join("kiln-repo-delivery");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
 
@@ -1308,7 +1308,7 @@ mod production_tests {
             integration: Integration {
                 method: IntegrationMethod::PushBranch,
                 target_ref: "main".into(),
-                branch_name: "spark/u-repo".into(),
+                branch_name: "kiln/u-repo".into(),
             },
         };
         e.admit(u).unwrap();
@@ -1319,7 +1319,7 @@ mod production_tests {
 
         let ev = e.stream.last().unwrap();
         let dr = ev.delivery_result.as_ref().expect("repository delivery reports refs");
-        assert_eq!(dr.branch, "spark/u-repo");
+        assert_eq!(dr.branch, "kiln/u-repo");
         assert_eq!(dr.commit.len(), 40, "a full commit SHA");
         assert!(dr.pr_url.is_none(), "push-branch delivery opens no PR");
         // Repository mode carries no per-cell artifact bodies.
@@ -1327,14 +1327,14 @@ mod production_tests {
             assert!(r.artifact.is_none(), "repository delivery carries refs, not payloads");
         }
         // The branch actually landed in the origin.
-        let branches = std::process::Command::new("git").arg("-C").arg(&origin).args(["branch", "--list", "spark/u-repo"]).output().unwrap();
-        assert!(String::from_utf8_lossy(&branches.stdout).contains("spark/u-repo"), "branch pushed to origin");
+        let branches = std::process::Command::new("git").arg("-C").arg(&origin).args(["branch", "--list", "kiln/u-repo"]).output().unwrap();
+        assert!(String::from_utf8_lossy(&branches.stdout).contains("kiln/u-repo"), "branch pushed to origin");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn isolated_drain_outside_queue_is_refused() {
-        let dir = std::env::temp_dir().join("spark-prod-test2");
+        let dir = std::env::temp_dir().join("kiln-prod-test2");
         let sandbox = LocalSandbox { root: dir.join("sandboxes") };
         let mut log = DurableLog::open(dir.join("v.jsonl")).unwrap();
         let mut e = Engine::new();

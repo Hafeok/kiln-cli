@@ -16,24 +16,24 @@
 //! Opt-in (network + `dotnet` required), so it is `#[ignore]`d out of the normal
 //! `cargo test` run. Invoke explicitly:
 //!
-//!   cargo test -p spark-executor --test csharp_live -- --ignored --nocapture
+//!   cargo test -p kiln-executor --test csharp_live -- --ignored --nocapture
 //!
 //! Configurable via env (defaults target the box on the bench):
-//!   SPARK_OPENAI_BASE_URL   default http://192.168.88.63:8000
-//!   SPARK_OPENAI_MODEL      default qwen3.6-35b
-//!   SPARK_OPENAI_API_KEY    optional bearer token
+//!   KILN_OPENAI_BASE_URL   default http://192.168.88.63:8000
+//!   KILN_OPENAI_MODEL      default qwen3.6-35b
+//!   KILN_OPENAI_API_KEY    optional bearer token
 
 use std::net::{TcpStream, ToSocketAddrs};
 use std::path::PathBuf;
 use std::time::Duration;
 
-use spark_execution::CommandOracle;
-use spark_executor::{DrainOutcome, Engine};
-use spark_interface::{Verdict, WorkUnit};
-use spark_sandbox::{LocalBroker, LocalSandbox};
-use spark_serving::OpenAiWorker;
-use spark_stream::DurableLog;
-use spark_switch::Mode;
+use kiln_execution::CommandOracle;
+use kiln_executor::{DrainOutcome, Engine};
+use kiln_interface::{Verdict, WorkUnit};
+use kiln_sandbox::{LocalBroker, LocalSandbox};
+use kiln_serving::OpenAiWorker;
+use kiln_stream::DurableLog;
+use kiln_switch::Mode;
 
 const DEFAULT_BASE_URL: &str = "http://192.168.88.63:8000";
 const DEFAULT_MODEL: &str = "qwen3.6-35b";
@@ -62,9 +62,9 @@ fn require(cond: bool, msg: &str) {
 #[test]
 #[ignore = "live: needs the Spark box reachable and `dotnet` on PATH"]
 fn box_writes_working_csharp() {
-    let base_url = std::env::var("SPARK_OPENAI_BASE_URL").unwrap_or_else(|_| DEFAULT_BASE_URL.into());
-    let model = std::env::var("SPARK_OPENAI_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.into());
-    let api_key = std::env::var("SPARK_OPENAI_API_KEY").ok();
+    let base_url = std::env::var("KILN_OPENAI_BASE_URL").unwrap_or_else(|_| DEFAULT_BASE_URL.into());
+    let model = std::env::var("KILN_OPENAI_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.into());
+    let api_key = std::env::var("KILN_OPENAI_API_KEY").ok();
 
     // --- Preconditions -----------------------------------------------------
     // `dotnet` present (the oracle shells out to it).
@@ -91,7 +91,7 @@ fn box_writes_working_csharp() {
 
     // --- Arrange -----------------------------------------------------------
     // The WorkUnit is the canonical contract JSON, admitted through the real
-    // homogeneity guard — same artifact `spark admit` consumes.
+    // homogeneity guard — same artifact `kiln admit` consumes.
     let unit_json = std::fs::read_to_string(repo_root().join("examples").join("workunit-csharp.json"))
         .expect("read workunit-csharp.json");
     let unit: WorkUnit = WorkUnit::from_canonical_json(&unit_json).expect("parse canonical WorkUnit");

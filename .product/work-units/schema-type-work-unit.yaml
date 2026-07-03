@@ -5,7 +5,7 @@ model: code
 context:
   derived_from:
   - domain:work-unit
-  - app-contract:spark-executor-app-contract
+  - app-contract:kiln-executor-app-contract
   frozen: true
   hash: sha256:4bfcf9acb97a006777993fb74bf639144900c65d8c0f4e47db6f1d101e1219c2
 produces:

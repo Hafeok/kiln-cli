@@ -1,19 +1,19 @@
 # Running on the Spark
 
 How to run real autonomous work on a DGX Spark box (or any Linux machine with a
-served model). `spark` is the **executor** — it orchestrates a model server and a
+served model). `kiln` is the **executor** — it orchestrates a model server and a
 verification gate through two seams. This guide wires both to real infrastructure.
 
 ```
-   developer ── spark mode set queue ──▶  box residency: QUEUE
-        │                                 └─▶ launch vLLM container on the box over SSH (SPARK_SSH_TARGET)
-   spark admit unit.json  ──▶  queue (binding-homogeneity guard)
+   developer ── kiln mode set queue ──▶  box residency: QUEUE
+        │                                 └─▶ launch vLLM container on the box over SSH (KILN_SSH_TARGET)
+   kiln admit unit.json  ──▶  queue (binding-homogeneity guard)
         │
-   spark serve  ──┬─▶  Worker   = the materialized host  (else SPARK_OPENAI_BASE_URL | SPARK_WORKER_CMD)
-                  └─▶  Oracle    = a protected test/gate  (SPARK_ORACLE_CMD)
+   kiln serve  ──┬─▶  Worker   = the materialized host  (else KILN_OPENAI_BASE_URL | KILN_WORKER_CMD)
+                  └─▶  Oracle    = a protected test/gate  (KILN_ORACLE_CMD)
                           │
                           ▼
-                  durable verdict log  .spark/verdicts.jsonl
+                  durable verdict log  .kiln/verdicts.jsonl
 ```
 
 ---
@@ -22,7 +22,7 @@ verification gate through two seams. This guide wires both to real infrastructur
 
 ```bash
 # build the executor
-cargo build --release          # → target/release/spark, target/release/spark-conform
+cargo build --release          # → target/release/kiln, target/release/kiln-conform
 export PATH="$PWD/target/release:$PATH"
 ```
 
@@ -33,25 +33,25 @@ On the box you also need **one served model** reachable over HTTP, and a
 
 ## 2. Serve a model on the box
 
-`spark` only needs an OpenAI-compatible `/v1/chat/completions` endpoint. You can
+`kiln` only needs an OpenAI-compatible `/v1/chat/completions` endpoint. You can
 let the switch start it for you, or manage the server yourself.
 
 ### Option A — let the switch start it (vLLM over SSH)
 
-Set `SPARK_SSH_TARGET` and `spark mode set` **materializes the residency**: it
+Set `KILN_SSH_TARGET` and `kiln mode set` **materializes the residency**: it
 retires any live host, launches the mode's model as a **vLLM container** on the box
 over SSH, polls `/v1` until it answers, and only then serves. The switch becomes a
-real start/stop of VRAM, and `spark serve` auto-targets the host.
+real start/stop of VRAM, and `kiln serve` auto-targets the host.
 
 ```bash
-export SPARK_SSH_TARGET=dev@spark-abcd.local     # enables the built-in SshVllmHost
-export SPARK_QUEUE_MODEL=qwen2.5-coder-7b        # model vLLM loads in QUEUE mode
-export SPARK_EXPLORER_MODEL=llama-3.1-70b        # model vLLM loads in EXPLORER mode
-export SPARK_VLLM_IMAGE=vllm/vllm-openai:latest  # optional; the container image
-export SPARK_VLLM_PORT=8000                      # optional; the served port
-export SPARK_VLLM_ARGS="--quantization awq"      # optional; extra vLLM flags
+export KILN_SSH_TARGET=dev@spark-abcd.local     # enables the built-in SshVllmHost
+export KILN_QUEUE_MODEL=qwen2.5-coder-7b        # model vLLM loads in QUEUE mode
+export KILN_EXPLORER_MODEL=llama-3.1-70b        # model vLLM loads in EXPLORER mode
+export KILN_VLLM_IMAGE=vllm/vllm-openai:latest  # optional; the container image
+export KILN_VLLM_PORT=8000                      # optional; the served port
+export KILN_VLLM_ARGS="--quantization awq"      # optional; extra vLLM flags
 
-spark mode set queue
+kiln mode set queue
 #   materializing residency: launching `vllm/vllm-openai:latest` (qwen2.5-coder-7b) on dev@spark-abcd.local ...
 #   residency ready at http://spark-abcd.local:8000
 ```
@@ -63,8 +63,8 @@ key) and Docker with the NVIDIA runtime on it.
 
 ### Option B — manage the server yourself
 
-Leave `SPARK_SSH_TARGET` unset and run any OpenAI-compatible server on the box, then
-point `spark` at it with `SPARK_OPENAI_BASE_URL` (§3).
+Leave `KILN_SSH_TARGET` unset and run any OpenAI-compatible server on the box, then
+point `kiln` at it with `KILN_OPENAI_BASE_URL` (§3).
 
 **llama.cpp (`llama-server`)**
 
@@ -79,7 +79,7 @@ llama-server \
 
 ```bash
 vllm serve Qwen/Qwen2.5-Coder-7B-Instruct \
-  --quantization awq --host 127.0.0.1 --port 8080 --api-key spark-local
+  --quantization awq --host 127.0.0.1 --port 8080 --api-key kiln-local
 ```
 
 Confirm it answers:
@@ -90,7 +90,7 @@ curl -s http://127.0.0.1:8080/v1/chat/completions \
   -d '{"model":"x","messages":[{"role":"user","content":"hi"}],"stream":false}' | head -c 200
 ```
 
-> **Residency & the switch.** `spark mode set queue` flips the box's *residency
+> **Residency & the switch.** `kiln mode set queue` flips the box's *residency
 > state* into QUEUE and enforces the one-binding-at-a-time invariants. It does not
 > itself load the GGUF — your model server owns VRAM. Keep **one** server resident
 > per mode: that is the QUEUE-vs-EXPLORER mutual exclusion in practice.
@@ -101,12 +101,12 @@ curl -s http://127.0.0.1:8080/v1/chat/completions \
 
 The built-in `OpenAiWorker` talks to the server directly (one resident model serves
 every cell — no per-cell process spawn). Selected automatically when
-`SPARK_OPENAI_BASE_URL` is set:
+`KILN_OPENAI_BASE_URL` is set:
 
 ```bash
-export SPARK_OPENAI_BASE_URL=http://127.0.0.1:8080   # server root, NOT including /v1
-export SPARK_OPENAI_MODEL=qwen2.5-coder-7b           # optional; else the unit's binding.model
-export SPARK_OPENAI_API_KEY=spark-local              # optional bearer token (vLLM --api-key)
+export KILN_OPENAI_BASE_URL=http://127.0.0.1:8080   # server root, NOT including /v1
+export KILN_OPENAI_MODEL=qwen2.5-coder-7b           # optional; else the unit's binding.model
+export KILN_OPENAI_API_KEY=kiln-local              # optional bearer token (vLLM --api-key)
 ```
 
 `temperature` and `max_tokens` set in a unit's `model_binding.params` are forwarded
@@ -116,9 +116,9 @@ to the request.
 
 | Condition | Worker |
 |---|---|
-| a residency materialized by `spark mode set` (host ready) | `OpenAiWorker` → the on-box vLLM host |
-| `SPARK_OPENAI_BASE_URL` set | `OpenAiWorker` (HTTP, persistent server) |
-| else `SPARK_WORKER_CMD` set | `CommandWorker` (shells out per cell, prompt on stdin) |
+| a residency materialized by `kiln mode set` (host ready) | `OpenAiWorker` → the on-box vLLM host |
+| `KILN_OPENAI_BASE_URL` set | `OpenAiWorker` (HTTP, persistent server) |
+| else `KILN_WORKER_CMD` set | `CommandWorker` (shells out per cell, prompt on stdin) |
 | else | `StubWorker` (deterministic, offline) |
 
 > `OpenAiWorker` speaks plain `http://` (on-box localhost needs no TLS). For a
@@ -135,7 +135,7 @@ target — reference it via `$SANDBOX` in your command if you templatize it, or 
 fixed project gate:
 
 ```bash
-export SPARK_ORACLE_CMD='cargo test --quiet'        # or: pytest -q, make check, ./gate.sh
+export KILN_ORACLE_CMD='cargo test --quiet'        # or: pytest -q, make check, ./gate.sh
 ```
 
 If unset, `serve` uses a trivially-passing **protected** oracle (`worker_writable:
@@ -147,9 +147,9 @@ false`) so the loop runs offline. A `CommandOracle` with `worker_writable: true`
 ## 5. Run it
 
 ```bash
-spark mode set queue
-spark admit unit.json            # repeat to enqueue more frozen WorkUnits
-spark serve                      # isolated drain over the whole queue
+kiln mode set queue
+kiln admit unit.json            # repeat to enqueue more frozen WorkUnits
+kiln serve                      # isolated drain over the whole queue
 ```
 
 `serve` prints which worker it selected, then per unit:
@@ -157,26 +157,26 @@ spark serve                      # isolated drain over the whole queue
 ```
 worker: OpenAI HTTP @ http://127.0.0.1:8080
   accepted   wu-hello  (sandbox provisioned → worker → oracle → logged → torn down)
-isolated-drained 1 unit-attempt(s); durable log holds 1 verdict(s) at .spark/verdicts.jsonl
+isolated-drained 1 unit-attempt(s); durable log holds 1 verdict(s) at .kiln/verdicts.jsonl
 ```
 
 Inspect results:
 
 ```bash
-spark status                     # box mode + read-model views
-spark stream                     # emitted VerdictEvents
-cat .spark/verdicts.jsonl        # the durable, append-only log (idempotent by bundle_hash)
+kiln status                     # box mode + read-model views
+kiln stream                     # emitted VerdictEvents
+cat .kiln/verdicts.jsonl        # the durable, append-only log (idempotent by bundle_hash)
 ```
 
 ### EXPLORER mode
 
 One large model, serial — for discovery rather than batched units. With Option A
 configured, the flip swaps the container for you (retire the QUEUE host, launch
-`SPARK_EXPLORER_MODEL`); otherwise swap the resident server yourself first. Then:
+`KILN_EXPLORER_MODEL`); otherwise swap the resident server yourself first. Then:
 
 ```bash
-spark mode set explorer          # retires the QUEUE vLLM host, launches the EXPLORER model
-spark explore                    # produces a discovery record (candidate structure, NOT accepted code)
+kiln mode set explorer          # retires the QUEUE vLLM host, launches the EXPLORER model
+kiln explore                    # produces a discovery record (candidate structure, NOT accepted code)
 ```
 
 ---
@@ -203,9 +203,9 @@ spark explore                    # produces a discovery record (candidate struct
 
 | Path | Contents |
 |---|---|
-| `.spark/state.json` | persisted Engine (queue, views, sequence) |
-| `.spark/verdicts.jsonl` | durable, append-only verdict log |
-| `.spark/sandboxes/<unit>/` | per-unit workspace (removed at verdict) |
+| `.kiln/state.json` | persisted Engine (queue, views, sequence) |
+| `.kiln/verdicts.jsonl` | durable, append-only verdict log |
+| `.kiln/sandboxes/<unit>/` | per-unit workspace (removed at verdict) |
 
 ---
 
@@ -213,13 +213,13 @@ spark explore                    # produces a discovery record (candidate struct
 
 | Symptom | Likely cause |
 |---|---|
-| `host launched but /v1 did not answer in time` | vLLM still loading weights, wrong `SPARK_VLLM_PORT`, or no NVIDIA runtime on the box |
-| `residency materialization failed: ssh …` | no key-based SSH to `SPARK_SSH_TARGET`, or Docker missing on the box |
-| `worker: offline stub …` printed | no materialized host and neither `SPARK_OPENAI_BASE_URL` nor `SPARK_WORKER_CMD` set |
+| `host launched but /v1 did not answer in time` | vLLM still loading weights, wrong `KILN_VLLM_PORT`, or no NVIDIA runtime on the box |
+| `residency materialization failed: ssh …` | no key-based SSH to `KILN_SSH_TARGET`, or Docker missing on the box |
+| `worker: offline stub …` printed | no materialized host and neither `KILN_OPENAI_BASE_URL` nor `KILN_WORKER_CMD` set |
 | `connect 127.0.0.1:8080: …` | model server not up / wrong port |
 | `non-200 from …` | bad model name, missing/incorrect API key |
 | `only http:// urls supported` | `OpenAiWorker` is `http`-only; use a TLS `Worker` for `https` |
-| units `escalated` then `halted` | the oracle rejected; check `SPARK_ORACLE_CMD` runs green by hand |
+| units `escalated` then `halted` | the oracle rejected; check `KILN_ORACLE_CMD` runs green by hand |
 | `rejected '…': inv-…` on admit | the WorkUnit isn't binding-homogeneous — fix the decomposition |
 
 See [`production-seams.md`](production-seams.md) for the architecture behind each seam.

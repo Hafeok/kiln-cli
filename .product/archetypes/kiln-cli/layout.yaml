@@ -1,5 +1,5 @@
 version: "0.1"
-archetype: spark-cli
+archetype: kiln-cli
 allowlist: true
 layout:
   # --- allowlist: where each kind of thing legally lives ---

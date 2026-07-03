@@ -1,4 +1,4 @@
-archetype: spark-cli
+archetype: kiln-cli
 version: '0.1'
 top_decisions:
 - id: two-level-control
@@ -216,7 +216,7 @@ patterns:
   enforced_by:
   - host-conformance
 application_contract:
-  id: spark-executor-app-contract
+  id: kiln-executor-app-contract
   language: Rust
   runtime: native, single NVIDIA DGX Spark (128GB unified memory, ~273GB/s)
   layering:
@@ -247,8 +247,8 @@ application_contract:
     statement: At most one serving host (a vLLM container) is materialized on the box at any instant; the prior host is retired to free VRAM before the next mode's host is launched, and only a health-ready host receives dispatched work.
     enforced_by: host-conformance
 infrastructure_contract:
-  id: single-spark-infra
-  satisfies: spark-executor-app-contract
+  id: single-kiln-infra
+  satisfies: kiln-executor-app-contract
   frozen: true
   resources:
   - id: compute

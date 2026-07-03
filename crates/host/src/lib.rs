@@ -1,14 +1,14 @@
 //! Serving Host — the physical materialization of a box residency: a vLLM
 //! server launched as a container on the box over SSH that actually backs the
-//! logical resident set. Where `spark-switch` sets the logical mode and
-//! `spark-serving` tracks logical VRAM residency, this crate owns the real
+//! logical resident set. Where `kiln-switch` sets the logical mode and
+//! `kiln-serving` tracks logical VRAM residency, this crate owns the real
 //! process: launch the container, wait until its `/v1` endpoint answers, serve,
 //! then retire it to free VRAM.
 //!
 //! It realises `serving-host-decider`, the `serving-host-view` projector, and
 //! the `ResidencyHost` seam — a `LocalProcessHost` standing in for an
 //! already-running local server, and an `SshVllmHost` that launches vLLM in a
-//! container on the box over SSH. The reused `OpenAiWorker` (in `spark-serving`)
+//! container on the box over SSH. The reused `OpenAiWorker` (in `kiln-serving`)
 //! dispatches inference at the endpoint a launched host returns.
 
 use std::net::{TcpStream, ToSocketAddrs};
@@ -167,7 +167,7 @@ pub fn probe_ready(host: &str, port: u16, timeout: Duration) -> bool {
 }
 
 /// Dev backend: assumes a model server is already running locally (the human ran
-/// `vllm serve` / `llama-server`, or `SPARK_OPENAI_BASE_URL` points at it).
+/// `vllm serve` / `llama-server`, or `KILN_OPENAI_BASE_URL` points at it).
 /// `launch` returns its endpoint without managing a process; `retire` is a no-op.
 pub struct LocalProcessHost {
     pub base_url: String,
@@ -208,7 +208,7 @@ impl SshVllmHost {
     pub fn container_name(spec: &HostSpec) -> String {
         let safe: String =
             spec.host_id.chars().map(|c| if c.is_alphanumeric() || c == '-' { c } else { '-' }).collect();
-        format!("spark-vllm-{safe}")
+        format!("kiln-vllm-{safe}")
     }
 
     /// The remote `docker run` invocation that starts a **detached** vLLM
@@ -362,7 +362,7 @@ mod tests {
         let cmd = SshVllmHost::launch_command(&spec());
         assert!(cmd.starts_with("docker run -d --rm"), "must be detached: {cmd}");
         assert!(cmd.contains("--gpus all"));
-        assert!(cmd.contains("--name spark-vllm-queue-coder"));
+        assert!(cmd.contains("--name kiln-vllm-queue-coder"));
         assert!(cmd.contains("-p 8000:8000"));
         assert!(cmd.contains("vllm/vllm-openai:latest"));
         assert!(cmd.contains("--model qwen2.5-coder-7b"));
@@ -379,10 +379,10 @@ mod tests {
         let h = HostHandle {
             endpoint: "http://spark-abcd.local:8000".into(),
             model: "qwen2.5-coder-7b".into(),
-            container: "spark-vllm-queue-coder".into(),
+            container: "kiln-vllm-queue-coder".into(),
             ssh_target: "dev@spark-abcd.local".into(),
         };
-        assert_eq!(SshVllmHost::retire_command(&h), "docker rm -f spark-vllm-queue-coder");
+        assert_eq!(SshVllmHost::retire_command(&h), "docker rm -f kiln-vllm-queue-coder");
     }
 
     // ── readiness probe ──────────────────────────────────────────────────

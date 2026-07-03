@@ -1,21 +1,21 @@
 //! §6.3 behavioural-conformance runner. Reads a JSON array of {given, when}
 //! requests on stdin and writes a JSON array of {emit|reject} outcomes on
 //! stdout, by replaying the *realised* Rust deciders. `product decider conform
-//! <name> --runner 'spark-conform <name>'` compares these to the oracle.
+//! <name> --runner 'kiln-conform <name>'` compares these to the oracle.
 
 use std::io::{Read, Write};
 
 use serde_json::{json, Value};
 
-use spark_exploration::{SessionCommand, SessionState};
-use spark_execution::{OracleCommand, OracleRunState, RunCommand, RunState};
-use spark_interface::WorkUnit;
-use spark_queue::{UnitCommand, UnitEvent, UnitState};
-use spark_host::{HostCommand, HostEvent, HostState};
-use spark_sandbox::{LeaseCommand, LeaseEvent, LeaseState, SandboxCommand, SandboxEvent, SandboxState};
-use spark_serving::{BatchCommand, BatchEvent, BatchState, BindingCommand, BindingEvent, ResidentState};
-use spark_stream::{LogCommand, LogEvent, LogState};
-use spark_switch::{BoxCommand, BoxEvent, BoxState, Mode};
+use kiln_exploration::{SessionCommand, SessionState};
+use kiln_execution::{OracleCommand, OracleRunState, RunCommand, RunState};
+use kiln_interface::WorkUnit;
+use kiln_queue::{UnitCommand, UnitEvent, UnitState};
+use kiln_host::{HostCommand, HostEvent, HostState};
+use kiln_sandbox::{LeaseCommand, LeaseEvent, LeaseState, SandboxCommand, SandboxEvent, SandboxState};
+use kiln_serving::{BatchCommand, BatchEvent, BatchState, BindingCommand, BindingEvent, ResidentState};
+use kiln_stream::{LogCommand, LogEvent, LogState};
+use kiln_switch::{BoxCommand, BoxEvent, BoxState, Mode};
 
 fn mode(v: &Value, key: &str) -> Mode {
     match v.get(key).and_then(Value::as_str) {
@@ -124,7 +124,7 @@ fn work_unit_decider(given: &[Value], when: &Value) -> Value {
 }
 
 fn execution_run_decider(given: &[Value], when: &Value) -> Value {
-    use spark_execution::RunEvent;
+    use kiln_execution::RunEvent;
     let mut st = RunState::default();
     for g in given {
         let (id, _) = ev(g);
@@ -157,7 +157,7 @@ fn execution_run_decider(given: &[Value], when: &Value) -> Value {
 }
 
 fn exploration_decider(given: &[Value], when: &Value) -> Value {
-    use spark_exploration::SessionEvent;
+    use kiln_exploration::SessionEvent;
     let mut st = SessionState::default();
     for g in given {
         let (id, _) = ev(g);

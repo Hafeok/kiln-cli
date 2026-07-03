@@ -1,8 +1,8 @@
 [package]
-name = "spark-exploration"
+name = "kiln-exploration"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
 
 [dependencies]
-spark-switch = { workspace = true }
+kiln-switch = { workspace = true }

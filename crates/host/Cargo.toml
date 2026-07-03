@@ -1,5 +1,5 @@
 [package]
-name = "spark-host"
+name = "kiln-host"
 edition.workspace = true
 version.workspace = true
 license.workspace = true

@@ -10,7 +10,7 @@
   },
   "spmc-bundle": {
     "model": {
-      "capability-tag": "spark-coder-light",
+      "capability-tag": "kiln-coder-light",
       "binding": {
         "provider": "local-vllm",
         "model-id": "qwen3.6-35b",

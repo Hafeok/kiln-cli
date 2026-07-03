@@ -1,10 +1,10 @@
 [package]
-name = "spark-execution"
+name = "kiln-execution"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
 
 [dependencies]
-spark-interface = { workspace = true }
-spark-switch = { workspace = true }
+kiln-interface = { workspace = true }
+kiln-switch = { workspace = true }
 serde_json = { workspace = true }

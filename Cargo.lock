@@ -63,6 +63,112 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
+name = "kiln-cli"
+version = "0.1.0"
+dependencies = [
+ "kiln-execution",
+ "kiln-executor",
+ "kiln-exploration",
+ "kiln-host",
+ "kiln-interface",
+ "kiln-queue",
+ "kiln-sandbox",
+ "kiln-serving",
+ "kiln-stream",
+ "kiln-switch",
+ "serde_json",
+]
+
+[[package]]
+name = "kiln-execution"
+version = "0.1.0"
+dependencies = [
+ "kiln-interface",
+ "kiln-switch",
+ "serde_json",
+]
+
+[[package]]
+name = "kiln-executor"
+version = "0.1.0"
+dependencies = [
+ "kiln-execution",
+ "kiln-exploration",
+ "kiln-host",
+ "kiln-interface",
+ "kiln-queue",
+ "kiln-sandbox",
+ "kiln-serving",
+ "kiln-stream",
+ "kiln-switch",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "kiln-exploration"
+version = "0.1.0"
+dependencies = [
+ "kiln-switch",
+]
+
+[[package]]
+name = "kiln-host"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "kiln-interface"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
+name = "kiln-queue"
+version = "0.1.0"
+dependencies = [
+ "kiln-interface",
+ "serde",
+]
+
+[[package]]
+name = "kiln-sandbox"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "kiln-serving"
+version = "0.1.0"
+dependencies = [
+ "kiln-interface",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "kiln-stream"
+version = "0.1.0"
+dependencies = [
+ "kiln-interface",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "kiln-switch"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "libc"
 version = "0.2.186"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -144,112 +250,6 @@ dependencies = [
  "cfg-if",
  "cpufeatures",
  "digest",
-]
-
-[[package]]
-name = "spark-cli"
-version = "0.1.0"
-dependencies = [
- "serde_json",
- "spark-execution",
- "spark-executor",
- "spark-exploration",
- "spark-host",
- "spark-interface",
- "spark-queue",
- "spark-sandbox",
- "spark-serving",
- "spark-stream",
- "spark-switch",
-]
-
-[[package]]
-name = "spark-execution"
-version = "0.1.0"
-dependencies = [
- "serde_json",
- "spark-interface",
- "spark-switch",
-]
-
-[[package]]
-name = "spark-executor"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "spark-execution",
- "spark-exploration",
- "spark-host",
- "spark-interface",
- "spark-queue",
- "spark-sandbox",
- "spark-serving",
- "spark-stream",
- "spark-switch",
-]
-
-[[package]]
-name = "spark-exploration"
-version = "0.1.0"
-dependencies = [
- "spark-switch",
-]
-
-[[package]]
-name = "spark-host"
-version = "0.1.0"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "spark-interface"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "sha2",
-]
-
-[[package]]
-name = "spark-queue"
-version = "0.1.0"
-dependencies = [
- "serde",
- "spark-interface",
-]
-
-[[package]]
-name = "spark-sandbox"
-version = "0.1.0"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "spark-serving"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "spark-interface",
-]
-
-[[package]]
-name = "spark-stream"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "spark-interface",
-]
-
-[[package]]
-name = "spark-switch"
-version = "0.1.0"
-dependencies = [
- "serde",
 ]
 
 [[package]]

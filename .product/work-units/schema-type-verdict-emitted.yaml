@@ -5,7 +5,7 @@ model: code
 context:
   derived_from:
   - domain:verdict-emitted
-  - app-contract:spark-executor-app-contract
+  - app-contract:kiln-executor-app-contract
   frozen: true
   hash: sha256:d500b23de7e0cb6cfc7ad3e0db94d5de6656c646298cac8915802987d05e1cee
 produces:

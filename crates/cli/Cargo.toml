@@ -1,26 +1,26 @@
 [package]
-name = "spark-cli"
+name = "kiln-cli"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
 
 [[bin]]
-name = "spark"
+name = "kiln"
 path = "src/main.rs"
 
 [[bin]]
-name = "spark-conform"
+name = "kiln-conform"
 path = "src/conform.rs"
 
 [dependencies]
 serde_json = { workspace = true }
-spark-interface = { workspace = true }
-spark-switch = { workspace = true }
-spark-execution = { workspace = true }
-spark-queue = { workspace = true }
-spark-exploration = { workspace = true }
-spark-executor = { workspace = true }
-spark-serving = { workspace = true }
-spark-sandbox = { workspace = true }
-spark-stream = { workspace = true }
-spark-host = { workspace = true }
+kiln-interface = { workspace = true }
+kiln-switch = { workspace = true }
+kiln-execution = { workspace = true }
+kiln-queue = { workspace = true }
+kiln-exploration = { workspace = true }
+kiln-executor = { workspace = true }
+kiln-serving = { workspace = true }
+kiln-sandbox = { workspace = true }
+kiln-stream = { workspace = true }
+kiln-host = { workspace = true }

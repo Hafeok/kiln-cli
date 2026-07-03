@@ -2,7 +2,7 @@
 //! its product is a discovery record, never accepted code. Realises
 //! `exploration-session-decider`.
 
-use spark_switch::Mode;
+use kiln_switch::Mode;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Phase {

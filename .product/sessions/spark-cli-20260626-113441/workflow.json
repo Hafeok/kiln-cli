@@ -1,6 +1,6 @@
 {
-  "id": "spark-cli-20260626-113441",
-  "product": "spark-cli",
+  "id": "kiln-cli-20260626-113441",
+  "product": "kiln-cli",
   "phase": "how",
   "agent_cli": "claude",
   "until": "build",

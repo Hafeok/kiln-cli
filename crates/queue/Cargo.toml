@@ -1,9 +1,9 @@
 [package]
-name = "spark-queue"
+name = "kiln-queue"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
 
 [dependencies]
 serde = { workspace = true }
-spark-interface = { workspace = true }
+kiln-interface = { workspace = true }
